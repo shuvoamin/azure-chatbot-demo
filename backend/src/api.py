@@ -54,9 +54,15 @@ async def health_check():
 # Serve static files (frontend) - MUST be last to not interfere with API routes
 from pathlib import Path
 frontend_dist = Path(__file__).parent.parent.parent / "frontend" / "dist"
+
+logger.info(f"Checking for frontend at: {frontend_dist.absolute()}")
+
 if frontend_dist.exists():
     from fastapi.staticfiles import StaticFiles
     app.mount("/", StaticFiles(directory=str(frontend_dist), html=True), name="static")
+    logger.info("Frontend dist found and mounted.")
+else:
+    logger.warning(f"Frontend dist NOT found at {frontend_dist.absolute()}. Only API will be available.")
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
