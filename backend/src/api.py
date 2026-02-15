@@ -11,6 +11,12 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Nviv", description="API for communicating with Azure OpenAI Chatbot")
 
+import os
+logger.info(f"Current Working Directory: {os.getcwd()}")
+logger.info(f"Files in root: {os.listdir('.')}")
+if os.path.exists('backend'):
+    logger.info(f"Files in backend: {os.listdir('backend')}")
+
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
