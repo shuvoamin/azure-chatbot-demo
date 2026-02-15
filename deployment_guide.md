@@ -32,7 +32,8 @@ Azure App Service is ideal for hosting both the Python backend and React fronten
 3. **Create `startup.sh`:**
    ```bash
    #!/bin/bash
-   uvicorn src.api:app --host 0.0.0.0 --port 8000
+   export PYTHONPATH=$PYTHONPATH:$(pwd)/backend/src
+   uvicorn backend.src.api:app --host 0.0.0.0 --port 8000
    ```
 
 4. **Deploy to Azure App Service:**
