@@ -1,10 +1,11 @@
 import { useState, useRef, useEffect } from 'react'
 import axios from 'axios'
+import ReactMarkdown from 'react-markdown'
 import './App.css'
 
 function App() {
   const [messages, setMessages] = useState([
-    { role: 'assistant', content: 'Hello! How can I help you today?' }
+    { role: 'assistant', content: 'Hello! I am Nviv, how can I help you today?' }
   ])
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
@@ -53,7 +54,7 @@ function App() {
           {messages.map((msg, index) => (
             <div key={index} className={`message ${msg.role}`}>
               <div className="message-bubble">
-                {msg.content}
+                <ReactMarkdown>{msg.content}</ReactMarkdown>
               </div>
             </div>
           ))}
