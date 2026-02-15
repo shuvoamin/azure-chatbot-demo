@@ -28,7 +28,7 @@ function App() {
     setIsLoading(true)
 
     try {
-      const response = await axios.post('http://localhost:8000/chat', {
+      const response = await axios.post('/chat', {
         message: input
       })
 
