@@ -46,3 +46,4 @@ jobs:
           app-name: 'nviv'
           publish-profile: ${{ secrets.NVIV_WEBAPP_PUBLISH_PROFILE }}
           package: release.zip
+          enable-oryx-build: true
