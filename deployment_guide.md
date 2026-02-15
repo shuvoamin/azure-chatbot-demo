@@ -154,6 +154,23 @@ git push origin main
 ```
 The workflow will automatically trigger and deploy your app.
 
+
+## Setting Environment Variables in Azure
+
+Since this app uses Azure OpenAI, you must set your API keys as **Environment Variables** (Application Settings) in the Azure Portal so the backend can access them.
+
+1.  In the **Azure Portal**, go to your **App Service** (nviv).
+2.  On the left menu, select **Settings** > **Environment variables** (or **Configuration** in some versions).
+3.  Under the **App settings** tab, click **+ Add**.
+4.  Add the following variables:
+    *   `AZURE_OPENAI_ENDPOINT`: Your Azure OpenAI endpoint URL.
+    *   `AZURE_OPENAI_API_KEY`: Your Azure OpenAI API key.
+    *   `AZURE_OPENAI_DEPLOYMENT_NAME`: The name of your model deployment (e.g., `gpt-35-turbo`).
+    *   `AZURE_OPENAI_API_VERSION`: (Optional) Defaults to `2024-02-15-preview`.
+5.  Click **Apply** at the bottom, then click **Confirm** to restart your app with the new settings.
+
+---
+
 ## Production Checklist
 
 - [ ] Build frontend for production (`npm run build`)

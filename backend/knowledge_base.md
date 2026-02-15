@@ -20,4 +20,5 @@ A: Nviv is free to use, it is at beta stage with limited resource and many funct
 - Email: support@nviv.com
 - Hours: Monday-Friday, 9 AM - 5 PM GMT
 
-## Policies
+## Version
+A: beta-0.1
