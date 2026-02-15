@@ -18,17 +18,16 @@ jobs:
         with:
           python-version: '3.10'
 
-      - name: Install backend dependencies
+      - name: Build and Package Python Backend
         run: |
+          python -m venv venv
+          source venv/bin/activate
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+          # Make sure uvicorn is actually there
+          pip show uvicorn
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '18'
-
-      - name: Build frontend
+      - name: Build and Package React Frontend
         run: |
           cd frontend
           npm install
@@ -36,9 +35,9 @@ jobs:
 
       - name: Zip application for deployment
         run: |
-          # We zip the source files and let Azure install dependencies via SCM_DO_BUILD_DURING_DEPLOYMENT
           chmod +x startup.sh
-          zip -r release.zip . -x "*.git*" "venv/*" "frontend/node_modules/*" ".github/*"
+          # Important: We INCLUDE venv this time
+          zip -r release.zip . -x "*.git*" "frontend/node_modules/*" ".github/*" "frontend/src/*"
 
       - name: Deploy to Azure Web App
         uses: azure/webapps-deploy@v2
@@ -46,4 +45,3 @@ jobs:
           app-name: 'nviv'
           publish-profile: ${{ secrets.NVIV_WEBAPP_PUBLISH_PROFILE }}
           package: release.zip
-          enable-oryx-build: true

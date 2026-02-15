@@ -1,8 +1,11 @@
 #!/bin/bash
-# Activate the virtual environment provided by Azure Oryx
-if [ -d "/home/site/wwwroot/antenv" ]; then
+# Activate the local virtual environment we bundled in the zip
+if [ -d "/home/site/wwwroot/venv" ]; then
+    source /home/site/wwwroot/venv/bin/activate
+    echo "Activated local virtual environment 'venv'"
+elif [ -d "/home/site/wwwroot/antenv" ]; then
     source /home/site/wwwroot/antenv/bin/activate
-    echo "Activated virtual environment 'antenv'"
+    echo "Activated system virtual environment 'antenv'"
 fi
 
 # Run the application
