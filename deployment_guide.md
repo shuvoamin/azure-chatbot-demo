@@ -182,3 +182,27 @@ Since this app uses Azure OpenAI, you must set your API keys as **Environment Va
 - [ ] Configure auto-scaling (if needed)
 - [ ] Set up CI/CD pipeline
 - [ ] Test all endpoints in production
+
+---
+
+## WhatsApp Integration (via Twilio)
+
+You can now connect your chatbot to WhatsApp using Twilio.
+
+### 1. Twilio Sandbox Setup
+1.  Go to the **Twilio Console** > **Messaging** > **Try it Out** > **Send a WhatsApp message**.
+2.  Follow the instructions to join the Sandbox (e.g., text `join <your-sandbox-word>` to your Sandbox number).
+
+### 2. Configure Webhook
+1.  In the Twilio Console, go to **Messaging** > **Settings** > **WhatsApp Sandbox Settings**.
+2.  Under **Sandbox Configuration**, find the field **"WHEN A MESSAGE COMES IN"**.
+3.  Set the URL to: `https://<your-app-name>.azurewebsites.net/whatsapp`
+4.  Ensure the method is set to `POST`.
+5.  Click **Save**.
+
+### 3. Test on WhatsApp
+1.  Send a message to your Twilio Sandbox number.
+2.  The AI should respond back directly in your WhatsApp chat!
+
+> [!NOTE]
+> The `/whatsapp` endpoint returns TwiML, which Twilio uses to format the response message. Azure OpenAI environment variables must be correctly configured for the response to be generated.

@@ -1,10 +1,11 @@
 import os
 import sys
 import uvicorn
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Form, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from pathlib import Path
+from twilio.twiml.messaging_response import MessagingResponse
 
 # Add the current directory to sys.path to allow importing local modules
 # This helps when the script is run from different working directories
@@ -64,6 +65,31 @@ async def chat_endpoint(request: ChatRequest):
 @app.get("/health")
 async def health_check():
     return {"status": "ok"}
+
+@app.post("/whatsapp")
+async def whatsapp_webhook(Body: str = Form(...), From: str = Form(...)):
+    logger.info(f"Received WhatsApp message from {From}: {Body}")
+    
+    if chatbot is None:
+        logger.error("Chatbot not initialized")
+        resp = MessagingResponse()
+        resp.message("Service temporarily unavailable.")
+        return Response(content=str(resp), media_type="application/xml")
+
+    try:
+        # Get AI response
+        ai_response = chatbot.chat(Body)
+        
+        # Create TwiML response
+        resp = MessagingResponse()
+        resp.message(ai_response)
+        
+        return Response(content=str(resp), media_type="application/xml")
+    except Exception as e:
+        logger.error(f"Error in whatsapp_webhook: {e}")
+        resp = MessagingResponse()
+        resp.message("Sorry, I encountered an error processing your message.")
+        return Response(content=str(resp), media_type="application/xml")
 
 # Serve static files (frontend) - MUST be last to not interfere with API routes
 from pathlib import Path
