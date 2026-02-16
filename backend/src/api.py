@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from pathlib import Path
 from twilio.twiml.messaging_response import MessagingResponse
+import requests
 
 # Add the current directory to sys.path to allow importing local modules
 # This helps when the script is run from different working directories
@@ -116,6 +117,118 @@ async def whatsapp_webhook(
         resp = MessagingResponse()
         resp.message("Sorry, I encountered an error processing your message.")
         return Response(content=str(resp), media_type="application/xml")
+
+# --- Native Meta WhatsApp Webhook ---
+
+@app.get("/meta/webhook")
+async def verify_meta_webhook(request: Request):
+    """
+    Handle Meta's webhook verification (GET request).
+    Meta sends a challenge to verify this server.
+    """
+    params = request.query_params
+    mode = params.get("hub.mode")
+    token = params.get("hub.verify_token")
+    challenge = params.get("hub.challenge")
+
+    verify_token = os.getenv("WHATSAPP_VERIFY_TOKEN", "nviv_verify_token")
+
+    if mode == "subscribe" and token == verify_token:
+        logger.info("Meta Webhook verified successfully!")
+        return Response(content=challenge)
+    
+    logger.warning("Meta Webhook verification failed.")
+    raise HTTPException(status_code=403, detail="Verification failed")
+
+@app.post("/meta/webhook")
+async def meta_webhook(request: Request):
+    """
+    Handle incoming WhatsApp messages from Meta (POST request).
+    """
+    body = await request.json()
+    logger.info(f"Received Meta Webhook event: {body}")
+
+    # Check if this is a WhatsApp message
+    if body.get("object") == "whatsapp_business_account":
+        for entry in body.get("entry", []):
+            for change in entry.get("changes", []):
+                value = change.get("value", {})
+                messages = value.get("messages", [])
+                
+                if messages:
+                    message = messages[0]
+                    from_number = message.get("from")
+                    message_id = message.get("id")
+                    
+                    # Handle Text Messages
+                    user_text = ""
+                    if message.get("type") == "text":
+                        user_text = message.get("text", {}).get("body", "")
+                    
+                    # Handle Audio Messages (Whisper)
+                    elif message.get("type") == "audio":
+                        audio = message.get("audio", {})
+                        media_id = audio.get("id")
+                        
+                        # Download audio from Meta
+                        logger.info(f"Downloading Meta audio ID: {media_id}")
+                        audio_url = get_meta_media_url(media_id)
+                        if audio_url:
+                            audio_resp = requests.get(audio_url, headers={"Authorization": f"Bearer {os.getenv('WHATSAPP_ACCESS_TOKEN')}"})
+                            if audio_resp.status_code == 200:
+                                transcribed_text = chatbot.transcribe_audio(audio_resp.content)
+                                user_text = transcribed_text
+                            else:
+                                user_text = "[Error: Could not process audio]"
+                    
+                    if user_text:
+                        # Get AI response
+                        ai_response = chatbot.chat(f"{user_text}\n\n[Instruction: Keep your response under 1500 characters.]")
+                        
+                        # Send back via Meta Graph API
+                        send_meta_whatsapp_message(from_number, ai_response)
+                        
+    return {"status": "ok"}
+
+def get_meta_media_url(media_id):
+    """Helper to get the actual download URL for a media ID from Meta."""
+    access_token = os.getenv("WHATSAPP_ACCESS_TOKEN")
+    if not access_token:
+        return None
+        
+    url = f"https://graph.facebook.com/v18.0/{media_id}"
+    headers = {"Authorization": f"Bearer {access_token}"}
+    resp = requests.get(url, headers=headers)
+    if resp.status_code == 200:
+        return resp.json().get("url")
+    return None
+
+def send_meta_whatsapp_message(to_number, message_text):
+    """Helper to send a message via Meta's Graph API."""
+    access_token = os.getenv("WHATSAPP_ACCESS_TOKEN")
+    phone_number_id = os.getenv("WHATSAPP_PHONE_NUMBER_ID")
+    
+    if not access_token or not phone_number_id:
+        logger.error("Meta WhatsApp credentials missing (WHATSAPP_ACCESS_TOKEN or WHATSAPP_PHONE_NUMBER_ID)")
+        return
+
+    url = f"https://graph.facebook.com/v18.0/{phone_number_id}/messages"
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": to_number,
+        "type": "text",
+        "text": {"body": message_text}
+    }
+    
+    resp = requests.post(url, headers=headers, json=payload)
+    if resp.status_code == 200:
+        logger.info(f"Message sent to {to_number} successfully.")
+    else:
+        logger.error(f"Failed to send Meta message: {resp.text}")
 
 # Serve static files (frontend) - MUST be last to not interfere with API routes
 from pathlib import Path

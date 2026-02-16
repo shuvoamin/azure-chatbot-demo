@@ -206,3 +206,27 @@ You can now connect your chatbot to WhatsApp using Twilio.
 
 > [!NOTE]
 > The `/whatsapp` endpoint returns TwiML, which Twilio uses to format the response message. Azure OpenAI environment variables must be correctly configured for the response to be generated.
+
+---
+
+## Native Meta WhatsApp Integration
+
+Alternatively, you can connect directly to Meta's Business Platform without Twilio.
+
+### 1. Meta App Setup
+1.  Create an app on the **Meta App Dashboard**.
+2.  Add the **WhatsApp** product to your app.
+3.  In the **WhatsApp** > **Configuration** tab:
+    - **Callback URL**: `https://<your-app-name>.azurewebsites.net/meta/webhook`
+    - **Verify Token**: Set a custom string (e.g., `nviv_verify_token`).
+4.  Copy your **Phone Number ID** and **Permanent Access Token**.
+
+### 2. Configure Environment Variables
+Add these to your Azure App Service:
+- `WHATSAPP_ACCESS_TOKEN`: Your Meta Access Token.
+- `WHATSAPP_PHONE_NUMBER_ID`: Your Phone Number ID.
+- `WHATSAPP_VERIFY_TOKEN`: The same token you set in the Meta Console.
+
+### 3. Test
+1.  Whitelist your phone number in the Meta Dashboard (for test numbers).
+2.  Send a message or a voice note! The bot will respond via the Meta Graph API.
