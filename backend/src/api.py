@@ -199,14 +199,17 @@ async def process_meta_background(body: dict, host_url: str):
             logger.warning(f"Meta event object is not 'whatsapp_business_account'. Skipping. (Found: {body.get('object')})")
             return
 
-        for entry in body.get("entry", []):
-            for change in entry.get("changes", []):
+        for entry_idx, entry in enumerate(body.get("entry", [])):
+            diag_logger.info(f"Processing entry {entry_idx}")
+            for change_idx, change in enumerate(entry.get("changes", [])):
                 value = change.get("value", {})
                 messages = value.get("messages", [])
+                diag_logger.info(f"Entry {entry_idx}, Change {change_idx} has {len(messages)} messages")
                 
                 if messages:
                     message = messages[0]
                     from_number = message.get("from")
+                    diag_logger.info(f"New message from {from_number} (Type: {message.get('type')})")
                     user_text = ""
                     
                     if message.get("type") == "text":
