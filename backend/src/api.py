@@ -168,6 +168,12 @@ def send_twilio_reply(to_number: str, message_text: str, image_url: str = None):
 async def process_meta_background(body: dict, host_url: str):
     """Processes Meta event in background"""
     try:
+        logger.info(f"Meta background task started. Object type: {body.get('object')}")
+        
+        if body.get("object") != "whatsapp_business_account":
+            logger.warning(f"Meta event object is not 'whatsapp_business_account'. Skipping. (Found: {body.get('object')})")
+            return
+
         for entry in body.get("entry", []):
             for change in entry.get("changes", []):
                 value = change.get("value", {})
@@ -298,6 +304,9 @@ async def meta_webhook(request: Request, background_tasks: BackgroundTasks):
 
     # Add to background tasks
     host_url = f"{request.url.scheme}://{request.url.netloc}"
+    if "azurewebsites.net" in host_url:
+        host_url = host_url.replace("http://", "https://")
+        
     background_tasks.add_task(process_meta_background, body, host_url)
                         
     return {"status": "ok"}
