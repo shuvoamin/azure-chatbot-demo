@@ -73,8 +73,12 @@ def save_base64_image(image_data: str, base_url: str) -> str:
             f.write(base64.b64decode(encoded))
             
         # Construct public URL
-        # Ensure base_url doesn't have double slashes
-        public_url = f"{str(base_url).rstrip('/')}/static/generated_images/{filename}"
+        # Robustly handle schemes (especially for Azure)
+        url_str = str(base_url).rstrip('/')
+        if "azurewebsites.net" in url_str and not url_str.startswith("https"):
+            url_str = url_str.replace("http://", "https://")
+            
+        public_url = f"{url_str}/static/generated_images/{filename}"
         logger.info(f"Image saved locally: {public_url}")
         return public_url
     except Exception as e:
@@ -142,7 +146,8 @@ def send_twilio_reply(to_number: str, message_text: str, image_url: str = None):
     from_number = os.getenv("TWILIO_FROM_NUMBER") # e.g. whatsapp:+14155238886
 
     if not all([account_sid, auth_token, from_number]):
-        logger.error("Twilio credentials missing for background reply.")
+        msg = "CRITICAL: Twilio credentials (SID, Token, or FromNumber) are missing in environment variables! Messaging will not work."
+        logger.error(msg)
         return
 
     try:
@@ -244,10 +249,13 @@ async def whatsapp_webhook(
         return Response(content=str(resp), media_type="application/xml")
 
     # Add processing to background tasks
+    # Ensure we use https if we are on Azure
     host_url = f"{request.url.scheme}://{request.url.netloc}"
+    if "azurewebsites.net" in host_url:
+        host_url = host_url.replace("http://", "https://")
+        
     background_tasks.add_task(process_twilio_background, Body, From, MediaUrl0, MediaContentType0, host_url)
 
-    # Return empty response immediately to avoid Twilio timeout
     return Response(content=str(MessagingResponse()), media_type="application/xml")
 
 # --- Native Meta WhatsApp Webhook ---
