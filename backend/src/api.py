@@ -95,6 +95,10 @@ def save_base64_image(image_data: str, base_url: str) -> str:
         with open(filepath, "wb") as f:
             f.write(base64.b64decode(encoded))
             
+        # Log file size
+        filesize_kb = filepath.stat().st_size / 1024
+        diag_logger.info(f"Image saved: {filename} ({filesize_kb:.2f} KB)")
+            
         # Construct public URL
         # Robustly handle schemes (especially for Azure)
         url_str = str(base_url).rstrip('/')
@@ -185,10 +189,10 @@ def send_twilio_reply(to_number: str, message_text: str, image_url: str = None):
             diag_logger.info(f"Adding media_url to Twilio params: {image_url}")
             params["media_url"] = [image_url]
             
-        client.messages.create(**params)
-        diag_logger.info(f"Twilio background reply sent to {to_number}")
+        msg_instance = client.messages.create(**params)
+        diag_logger.info(f"Twilio background reply sent to {to_number}. SID: {msg_instance.sid}, Status: {msg_instance.status}")
     except Exception as e:
-        diag_logger.error(f"Failed to send Twilio outbound: {e}")
+        diag_logger.error(f"Failed to send Twilio outbound: {str(e)}")
 
 async def process_meta_background(body: dict, host_url: str):
     """Processes Meta event in background"""
