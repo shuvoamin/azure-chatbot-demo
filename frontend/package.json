@@ -8,7 +8,8 @@
     "dev:all": "concurrently \"cd .. && venv/bin/python -m uvicorn backend.src.api:app --reload --port 8000\" \"vite\"",
     "build": "vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "cd .. && venv/bin/pytest backend/tests"
   },
   "dependencies": {
     "axios": "^1.13.5",
