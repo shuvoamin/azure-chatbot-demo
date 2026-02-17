@@ -1,15 +1,15 @@
 import os
 import sys
 import uvicorn
-from fastapi import FastAPI, HTTPException, Form, Response, Request
+from fastapi import FastAPI, HTTPException, Form, Response, Request, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from pathlib import Path
 from twilio.twiml.messaging_response import MessagingResponse
+from twilio.rest import Client as TwilioClient
 import requests
 import base64
 import uuid
-from pathlib import Path
 from fastapi.staticfiles import StaticFiles
 
 # Add the current directory to sys.path to allow importing local modules
@@ -100,8 +100,103 @@ try:
     logger.info("ChatBot initialized successfully.")
 except Exception as e:
     logger.error(f"Failed to initialize ChatBot: {e}")
-    # In a real app we might want to fail start-up, but for now we'll handle calls gracefully if possible or let them fail
     chatbot = None
+
+# --- Background Task Helpers ---
+
+async def process_twilio_background(body: str, from_number: str, media_url: str, media_type: str, host_url: str):
+    """Processes Twilio message in background and sends reply via REST API"""
+    try:
+        user_text = body or ""
+        
+        # Handle Audio
+        if media_url and "audio" in media_type:
+            audio_response = requests.get(media_url)
+            if audio_response.status_code == 200:
+                user_text = chatbot.transcribe_audio(audio_response.content)
+        
+        if not user_text and not media_url:
+            return
+
+        # Handle Image Request
+        if user_text.lower().startswith("/image"):
+            prompt = user_text[7:].strip()
+            if prompt:
+                image_result = chatbot.generate_image(prompt)
+                image_url = save_base64_image(image_result, host_url)
+                send_twilio_reply(from_number, "Here is your generated image!", image_url)
+                return
+
+        # Standard Chat
+        ai_response = chatbot.chat(f"{user_text}\n\n[Instruction: Keep your response under 1500 characters.]")
+        send_twilio_reply(from_number, ai_response)
+        
+    except Exception as e:
+        logger.error(f"Error in Twilio background task: {e}")
+        send_twilio_reply(from_number, "Sorry, I encountered an error processing your query.")
+
+def send_twilio_reply(to_number: str, message_text: str, image_url: str = None):
+    """Sends an outbound message using Twilio Client"""
+    account_sid = os.getenv("TWILIO_ACCOUNT_SID")
+    auth_token = os.getenv("TWILIO_AUTH_TOKEN")
+    from_number = os.getenv("TWILIO_FROM_NUMBER") # e.g. whatsapp:+14155238886
+
+    if not all([account_sid, auth_token, from_number]):
+        logger.error("Twilio credentials missing for background reply.")
+        return
+
+    try:
+        client = TwilioClient(account_sid, auth_token)
+        params = {
+            "from_": from_number,
+            "to": to_number,
+            "body": message_text
+        }
+        if image_url:
+            params["media_url"] = [image_url]
+            
+        client.messages.create(**params)
+        logger.info(f"Twilio background reply sent to {to_number}")
+    except Exception as e:
+        logger.error(f"Failed to send Twilio outbound: {e}")
+
+async def process_meta_background(body: dict, host_url: str):
+    """Processes Meta event in background"""
+    try:
+        for entry in body.get("entry", []):
+            for change in entry.get("changes", []):
+                value = change.get("value", {})
+                messages = value.get("messages", [])
+                
+                if messages:
+                    message = messages[0]
+                    from_number = message.get("from")
+                    user_text = ""
+                    
+                    if message.get("type") == "text":
+                        user_text = message.get("text", {}).get("body", "")
+                    elif message.get("type") == "audio":
+                        audio = message.get("audio", {})
+                        media_id = audio.get("id")
+                        audio_url = get_meta_media_url(media_id)
+                        if audio_url:
+                            token = os.getenv('WHATSAPP_ACCESS_TOKEN')
+                            audio_resp = requests.get(audio_url, headers={"Authorization": f"Bearer {token}"})
+                            if audio_resp.status_code == 200:
+                                user_text = chatbot.transcribe_audio(audio_resp.content)
+
+                    if user_text:
+                        if user_text.lower().startswith("/image"):
+                            prompt = user_text[7:].strip()
+                            if prompt:
+                                image_result = chatbot.generate_image(prompt)
+                                image_url = save_base64_image(image_result, host_url)
+                                send_meta_whatsapp_image(from_number, image_url)
+                        else:
+                            ai_response = chatbot.chat(f"{user_text}\n\n[Instruction: Keep your response under 1500 characters.]")
+                            send_meta_whatsapp_message(from_number, ai_response)
+    except Exception as e:
+        logger.error(f"Error in Meta background task: {e}")
 
 @app.post("/chat", response_model=ChatResponse)
 async def chat_endpoint(request: ChatRequest):
@@ -134,71 +229,26 @@ async def health_check():
 
 @app.post("/whatsapp")
 async def whatsapp_webhook(
+    background_tasks: BackgroundTasks,
     request: Request,
     Body: str = Form(None), 
     From: str = Form(...),
     MediaUrl0: str = Form(None),
     MediaContentType0: str = Form(None)
 ):
-    logger.info(f"Received WhatsApp message from {From}. Body: {Body}, Media: {MediaContentType0}")
+    logger.info(f"Received Twilio WhatsApp message from {From}. (Acknowledging immediately)")
     
     if chatbot is None:
-        logger.error("Chatbot not initialized")
         resp = MessagingResponse()
         resp.message("Service temporarily unavailable.")
         return Response(content=str(resp), media_type="application/xml")
 
-    try:
-        user_text = Body or ""
-        
-        # Handle Audio Media
-        if MediaUrl0 and "audio" in MediaContentType0:
-            import requests
-            logger.info(f"Downloading audio from {MediaUrl0}")
-            audio_response = requests.get(MediaUrl0)
-            if audio_response.status_code == 200:
-                logger.info("Transcribing audio...")
-                transcribed_text = chatbot.transcribe_audio(audio_response.content)
-                logger.info(f"Transcribed Text: {transcribed_text}")
-                user_text = transcribed_text
-            else:
-                logger.error(f"Failed to download audio: {audio_response.status_code}")
-                user_text = "[Error: Could not process audio message]"
+    # Add processing to background tasks
+    host_url = f"{request.url.scheme}://{request.url.netloc}"
+    background_tasks.add_task(process_twilio_background, Body, From, MediaUrl0, MediaContentType0, host_url)
 
-        if not user_text and not MediaUrl0:
-            resp = MessagingResponse()
-            resp.message("I received an empty message. How can I help you?")
-            return Response(content=str(resp), media_type="application/xml")
-
-        if user_text.lower().startswith("/image"):
-            prompt = user_text[7:].strip()
-            if prompt:
-                logger.info(f"Generating image for Twilio: {prompt}")
-                # We need the base URL for the public link
-                # Twilio doesn't provide a direct way to get our own URL, but we can infer it or use an env var
-                # For now, we'll try to use the request host
-                host_url = f"{request.url.scheme}://{request.url.netloc}"
-                image_result = chatbot.generate_image(prompt)
-                image_url = save_base64_image(image_result, host_url)
-                
-                resp = MessagingResponse()
-                msg = resp.message("Here is your generated image!")
-                msg.media(image_url)
-                return Response(content=str(resp), media_type="application/xml")
-
-        # Get AI response with WhatsApp-specific constraint
-        ai_response = chatbot.chat(f"{user_text}\n\n[Instruction: Keep your response under 1500 characters.]")
-        
-        # Create TwiML response
-        resp = MessagingResponse()
-        resp.message(ai_response)
-        
-        return Response(content=str(resp), media_type="application/xml")
-    except Exception as e:
-        logger.error(f"Error in whatsapp_webhook: {e}")
-        resp = MessagingResponse()
-        resp.message("Sorry, I encountered an error processing your message.")
-        return Response(content=str(resp), media_type="application/xml")
+    # Return empty response immediately to avoid Twilio timeout
+    return Response(content=str(MessagingResponse()), media_type="application/xml")
 
 # --- Native Meta WhatsApp Webhook ---
 
@@ -227,74 +277,20 @@ async def verify_meta_webhook(request: Request):
     return Response(content="Verification failed", status_code=403)
 
 @app.post("/meta/webhook")
-async def meta_webhook(request: Request):
+async def meta_webhook(request: Request, background_tasks: BackgroundTasks):
     """
     Handle incoming WhatsApp messages from Meta (POST request).
     """
     try:
         body = await request.json()
-        logger.info(f"Received Meta Webhook event: {body}")
+        logger.info(f"Received Meta Webhook event. (Acknowledging immediately)")
     except Exception as e:
         logger.error(f"Failed to parse Meta JSON: {e}")
         return {"status": "error"}
 
-    # Check if this is a WhatsApp message
-    if body.get("object") == "whatsapp_business_account":
-        for entry in body.get("entry", []):
-            for change in entry.get("changes", []):
-                value = change.get("value", {})
-                messages = value.get("messages", [])
-                
-                if messages:
-                    message = messages[0]
-                    from_number = message.get("from")
-                    
-                    # Handle Text Messages
-                    user_text = ""
-                    if message.get("type") == "text":
-                        user_text = message.get("text", {}).get("body", "")
-                        logger.info(f"Processing text message from {from_number}: {user_text}")
-                    
-                    # Handle Audio Messages (Whisper)
-                    elif message.get("type") == "audio":
-                        audio = message.get("audio", {})
-                        media_id = audio.get("id")
-                        logger.info(f"Processing audio message from {from_number}, ID: {media_id}")
-                        
-                        audio_url = get_meta_media_url(media_id)
-                        if audio_url:
-                            audio_resp = requests.get(audio_url, headers={"Authorization": f"Bearer {os.getenv('WHATSAPP_ACCESS_TOKEN')}"})
-                            if audio_resp.status_code == 200:
-                                transcribed_text = chatbot.transcribe_audio(audio_resp.content)
-                                logger.info(f"Transcribed Text: {transcribed_text}")
-                                user_text = transcribed_text
-                            else:
-                                logger.error(f"Failed to download audio: {audio_resp.status_code}")
-                    
-                    if user_text:
-                        # Detect image request
-                        if user_text.lower().startswith("/image"):
-                            prompt = user_text[7:].strip()
-                            if prompt:
-                                logger.info(f"Generating image for Meta: {prompt}")
-                                try:
-                                    # Use host from request
-                                    host_url = f"{request.url.scheme}://{request.url.netloc}"
-                                    image_result = chatbot.generate_image(prompt)
-                                    image_url = save_base64_image(image_result, host_url)
-                                    send_meta_whatsapp_image(from_number, image_url)
-                                except Exception as e:
-                                    logger.error(f"Meta image gen failed: {e}")
-                                    send_meta_whatsapp_message(from_number, "Sorry, I couldn't generate that image.")
-                        else:
-                            # Get AI response
-                            ai_response = chatbot.chat(f"{user_text}\n\n[Instruction: Keep your response under 1500 characters.]")
-                            logger.info(f"AI Response generated. Sending to {from_number}...")
-                            
-                            # Send back via Meta Graph API
-                            send_meta_whatsapp_message(from_number, ai_response)
-                    else:
-                        logger.warning(f"No processable text or audio found in message from {from_number}")
+    # Add to background tasks
+    host_url = f"{request.url.scheme}://{request.url.netloc}"
+    background_tasks.add_task(process_meta_background, body, host_url)
                         
     return {"status": "ok"}
 
