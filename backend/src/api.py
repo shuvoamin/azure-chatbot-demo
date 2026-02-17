@@ -23,6 +23,29 @@ import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# --- In-Memory Diagnostic Logging ---
+from collections import deque
+from datetime import datetime
+LOG_BUFFER = deque(maxlen=100)
+
+class DiagnosticLogger:
+    def info(self, msg):
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        LOG_BUFFER.append(f"[{timestamp}] INFO: {msg}")
+        logger.info(msg)
+    
+    def error(self, msg):
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        LOG_BUFFER.append(f"[{timestamp}] ERROR: {msg}")
+        logger.error(msg)
+    
+    def warning(self, msg):
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        LOG_BUFFER.append(f"[{timestamp}] WARNING: {msg}")
+        logger.warning(msg)
+
+diag_logger = DiagnosticLogger()
+
 app = FastAPI(title="Nviv", description="API for communicating with Azure OpenAI Chatbot")
 
 import os
@@ -110,6 +133,7 @@ except Exception as e:
 
 async def process_twilio_background(body: str, from_number: str, media_url: str, media_type: str, host_url: str):
     """Processes Twilio message in background and sends reply via REST API"""
+    diag_logger.info(f"Starting Twilio background task for {from_number}")
     try:
         user_text = body or ""
         
@@ -167,8 +191,9 @@ def send_twilio_reply(to_number: str, message_text: str, image_url: str = None):
 
 async def process_meta_background(body: dict, host_url: str):
     """Processes Meta event in background"""
+    diag_logger.info("Meta background task starting...")
     try:
-        logger.info(f"Meta background task started. Object type: {body.get('object')}")
+        diag_logger.info(f"Meta event object: {body.get('object')}")
         
         if body.get("object") != "whatsapp_business_account":
             logger.warning(f"Meta event object is not 'whatsapp_business_account'. Skipping. (Found: {body.get('object')})")
@@ -237,6 +262,22 @@ async def generate_image_endpoint(request: ImageRequest, api_request: Request):
 @app.get("/health")
 async def health_check():
     return {"status": "ok"}
+
+@app.get("/debug-logs")
+async def debug_logs():
+    """Returns the last 100 log entries as a simple HTML list"""
+    logs_html = "<html><head><title>Nviv Debug Logs</title><style>body{font-family:monospace;background:#1e1e1e;color:#d4d4d4;padding:20px;} li{margin-bottom:5px;border-bottom:1px solid #333;padding-bottom:5px;}</style></head><body>"
+    logs_html += "<h1>System Diagnostic Logs (Last 100)</h1><ul>"
+    
+    reversed_logs = list(LOG_BUFFER)
+    reversed_logs.reverse()
+    
+    for entry in reversed_logs:
+        color = "#ff4444" if "ERROR" in entry else "#ffbb33" if "WARNING" in entry else "#d4d4d4"
+        logs_html += f"<li style='color:{color}'>{entry}</li>"
+    
+    logs_html += "</ul></body></html>"
+    return Response(content=logs_html, media_type="text/html")
 
 @app.post("/whatsapp")
 async def whatsapp_webhook(
