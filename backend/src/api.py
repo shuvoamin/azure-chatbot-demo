@@ -210,10 +210,12 @@ async def process_meta_background(body: dict, host_url: str):
                     message = messages[0]
                     from_number = message.get("from")
                     diag_logger.info(f"New message from {from_number} (Type: {message.get('type')})")
+                    from_number = message.get("from")
                     user_text = ""
                     
                     if message.get("type") == "text":
                         user_text = message.get("text", {}).get("body", "")
+                        diag_logger.info(f"Extracted user text: '{user_text}'")
                     elif message.get("type") == "audio":
                         audio = message.get("audio", {})
                         media_id = audio.get("id")
@@ -225,6 +227,11 @@ async def process_meta_background(body: dict, host_url: str):
                                 user_text = chatbot.transcribe_audio(audio_resp.content)
 
                     if user_text:
+                        if chatbot is None:
+                            diag_logger.error("Chatbot is not initialized. Cannot process message.")
+                            send_meta_whatsapp_message(from_number, "Service temporarily unavailable.")
+                            return
+
                         if user_text.lower().startswith("/image"):
                             prompt = user_text[7:].strip()
                             if prompt:
@@ -232,10 +239,12 @@ async def process_meta_background(body: dict, host_url: str):
                                 image_url = save_base64_image(image_result, host_url)
                                 send_meta_whatsapp_image(from_number, image_url)
                         else:
+                            diag_logger.info("Calling chatbot.chat...")
                             ai_response = chatbot.chat(f"{user_text}\n\n[Instruction: Keep your response under 1500 characters.]")
+                            diag_logger.info(f"AI Response generated: {ai_response[:50]}...")
                             send_meta_whatsapp_message(from_number, ai_response)
     except Exception as e:
-        logger.error(f"Error in Meta background task: {e}")
+        diag_logger.error(f"Error in Meta background task: {e}")
 
 @app.post("/chat", response_model=ChatResponse)
 async def chat_endpoint(request: ChatRequest):
@@ -347,6 +356,9 @@ async def meta_webhook(request: Request, background_tasks: BackgroundTasks):
         return {"status": "error"}
 
     # Add to background tasks
+    if chatbot is None:
+        diag_logger.warning("Chatbot not initialized in Meta webhook, but proceeding to background task for diagnostic logging.")
+        
     host_url = f"{request.url.scheme}://{request.url.netloc}"
     if "azurewebsites.net" in host_url:
         host_url = host_url.replace("http://", "https://")
