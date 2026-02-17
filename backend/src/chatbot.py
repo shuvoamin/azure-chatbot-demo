@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 class ChatBot:
     def __init__(self):
         load_dotenv()
-        self.endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
+        self.endpoint = os.getenv("AZURE_OPENAI_ENDPOINT", "").rstrip("/")
         self.api_key = os.getenv("AZURE_OPENAI_API_KEY")
         self.deployment_name = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME")
         self.whisper_deployment = os.getenv("AZURE_OPENAI_WHISPER_DEPLOYMENT")
