@@ -1,5 +1,7 @@
 import os
 import requests
+import re
+import requests
 from fastapi import APIRouter, Request, BackgroundTasks, Response
 import app_state
 from utils.image_utils import save_base64_image
@@ -32,7 +34,19 @@ async def process_meta_background(body: dict, host_url: str):
                             send_meta_whatsapp_image(from_number, image_url)
                         else:
                             ai_response = await app_state.chatbot.chat(f"{user_text}\n\n[Instruction: Keep your response under 1500 characters.]")
-                            send_meta_whatsapp_message(from_number, ai_response)
+                            
+                            # Check if the AI generated an image (markdown format: ![alt](url))
+                            image_match = re.search(r'!\[.*?\]\((.*?)\)', ai_response)
+                            if image_match:
+                                image_url = image_match.group(1)
+                                send_meta_whatsapp_image(from_number, image_url)
+                                
+                                # Send any text that accompanied the image
+                                text_without_image = re.sub(r'!\[.*?\]\(.*?\)', '', ai_response).strip()
+                                if text_without_image:
+                                    send_meta_whatsapp_message(from_number, text_without_image)
+                            else:
+                                send_meta_whatsapp_message(from_number, ai_response)
     except Exception as e: app_state.diag_logger.error(f"Error in Meta background task: {e}")
 
 @router.get("/meta/webhook")

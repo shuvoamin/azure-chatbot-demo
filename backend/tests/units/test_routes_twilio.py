@@ -67,6 +67,19 @@ async def test_twilio_whatsapp_image_command(client):
                 mock_bot.generate_image.assert_called_with("sunset")
                 mock_send.assert_called_with("whatsapp:+1", "", "http://host/image.jpg")
 
+@pytest.mark.asyncio
+async def test_twilio_process_chat_with_markdown_image(client):
+    """Verify processing of AI chat response containing a markdown image in Twilio"""
+    from routes.twilio_routes import process_twilio_background
+    
+    with patch('app_state.chatbot') as mock_bot:
+        mock_bot.chat = AsyncMock(return_value="Here is your requested image:\n![Generated](http://host/the-image.jpg)")
+        
+        with patch('routes.twilio_routes.send_twilio_reply') as mock_send:
+            await process_twilio_background("draw a cat", "whatsapp:+1", None, None, "http://host")
+            
+            mock_send.assert_called_with("whatsapp:+1", "Here is your requested image:", "http://host/the-image.jpg")
+
 def test_twilio_send_reply_missing_creds(client):
     """Verify graceful handling of missing credentials"""
     envs = {} # Empty env

@@ -127,10 +127,28 @@ def test_meta_process_audio_message(client):
                     asyncio.run(process_meta_background(payload, "http://host"))
                     
                     mock_bot.transcribe_audio.assert_called_once()
-                    # assert_called() on AsyncMock works but verify await happened:
-                     # mock_bot.chat.assert_awaited_once() # or just assert_called if we don't care about await detail
                     mock_bot.chat.assert_called()
                     mock_send.assert_called_with("123", "AI Reply")
+
+def test_meta_process_chat_with_markdown_image(client):
+    """Verify processing of AI chat response containing a markdown image"""
+    from routes.meta_routes import process_meta_background
+    
+    payload = {
+        "object": "whatsapp_business_account",
+        "entry": [{"changes": [{"value": {"messages": [{"type": "text", "text": {"body": "hello"}, "from": "123"}]}}]}]
+    }
+    
+    with patch('app_state.chatbot') as mock_bot:
+        mock_bot.chat = AsyncMock(return_value="Here is your picture!\n![Generated Image](http://host/generated.jpg)")
+        
+        with patch('routes.meta_routes.send_meta_whatsapp_image') as mock_send_img:
+            with patch('routes.meta_routes.send_meta_whatsapp_message') as mock_send_msg:
+                import asyncio
+                asyncio.run(process_meta_background(payload, "http://host"))
+                
+                mock_send_img.assert_called_with("123", "http://host/generated.jpg")
+                mock_send_msg.assert_called_with("123", "Here is your picture!")
 
 def test_meta_process_image_command(client):
     """Verify processing of /image command from Meta"""

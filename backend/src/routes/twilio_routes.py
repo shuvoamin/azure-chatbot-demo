@@ -1,5 +1,7 @@
 import os
 import requests
+import re
+import requests
 from fastapi import APIRouter, Request, Form, Response, BackgroundTasks
 from twilio.twiml.messaging_response import MessagingResponse
 from twilio.rest import Client as TwilioClient
@@ -27,7 +29,15 @@ async def process_twilio_background(body: str, from_number: str, media_url: str,
                 send_twilio_reply(from_number, "", image_url)
                 return
         ai_response = await app_state.chatbot.chat(f"{user_text}\n\n[Instruction: Keep your response under 1500 characters.]")
-        send_twilio_reply(from_number, ai_response)
+        
+        # Check if the AI generated an image (markdown format: ![alt](url))
+        image_match = re.search(r'!\[.*?\]\((.*?)\)', ai_response)
+        if image_match:
+            image_url = image_match.group(1)
+            text_without_image = re.sub(r'!\[.*?\]\(.*?\)', '', ai_response).strip()
+            send_twilio_reply(from_number, text_without_image, image_url)
+        else:
+            send_twilio_reply(from_number, ai_response)
     except Exception as e:
         app_state.diag_logger.error(f"Error in Twilio background task: {e}")
         send_twilio_reply(from_number, "Sorry, I encountered an error processing your query.")
