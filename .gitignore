@@ -43,3 +43,6 @@ backend/static/generated_images/*
 # Testing artifacts
 .coverage
 .pytest_cache/
+
+# Databases
+backend/data/
