@@ -3,7 +3,7 @@ import pytest
 import os
 from unittest.mock import patch, MagicMock, AsyncMock
 
-def test_meta_webhook_verification(client):
+def test_meta_whatsapp_webhook_verification(client):
     """Verify that the Meta webhook challenge logic works"""
     # Using the default verify token if not set in env
     verify_token = "nviv_verify_token_jan_2026"
@@ -12,43 +12,43 @@ def test_meta_webhook_verification(client):
         "hub.verify_token": verify_token,
         "hub.challenge": "123456789"
     }
-    response = client.get("/meta/webhook", params=params)
+    response = client.get("/meta/whatsapp", params=params)
     
     assert response.status_code == 200
     assert response.text == "123456789"
 
-def test_meta_webhook_verification_failure(client):
+def test_meta_whatsapp_webhook_verification_failure(client):
     """Verify webhook verification failure"""
     params = {
         "hub.mode": "subscribe",
         "hub.verify_token": "wrong_token",
         "hub.challenge": "12345"
     }
-    response = client.get("/meta/webhook", params=params)
+    response = client.get("/meta/whatsapp", params=params)
     assert response.status_code == 403
     assert response.text == "Failed"
 
-def test_meta_webhook_invalid_verification(client):
+def test_meta_whatsapp_webhook_invalid_verification(client):
     """Verify that invalid verification tokens are rejected"""
     params = {
         "hub.mode": "subscribe",
         "hub.verify_token": "wrong_token",
         "hub.challenge": "123456789"
     }
-    response = client.get("/meta/webhook", params=params)
+    response = client.get("/meta/whatsapp", params=params)
     assert response.status_code == 403
 
-def test_meta_webhook_post_ack(client):
+def test_meta_whatsapp_webhook_post_ack(client):
     """Verify that the Meta POST webhook acknowledges messages"""
     payload = {
         "object": "whatsapp_business_account",
         "entry": []
     }
-    response = client.post("/meta/webhook", json=payload)
+    response = client.post("/meta/whatsapp", json=payload)
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
 
-def test_meta_webhook_body_error(client):
+def test_meta_whatsapp_webhook_body_error(client):
     """Verify handling of malformed body in webhook"""
     # Sending invalid JSON triggers generic 422 usually, but strict mode check in code:
     # try: body = await request.json() except: return {"status": "error"}
@@ -59,7 +59,7 @@ def test_meta_webhook_body_error(client):
     
     # We can mock Request.json
     with patch("fastapi.Request.json", side_effect=ValueError("Bad JSON")):
-        response = client.post("/meta/webhook", content="bad data")
+        response = client.post("/meta/whatsapp", content="bad data")
         assert response.status_code == 200
         assert response.json() == {"status": "error"}
 
@@ -77,32 +77,32 @@ async def test_meta_send_image():
 @pytest.mark.asyncio
 async def test_meta_background_no_action():
     """Verify background task with no usable content returns early"""
-    from routes.meta_routes import process_meta_background
+    from routes.meta_routes import process_meta_whatsapp_background
     # Body with no object
-    await process_meta_background({}, "http://host")
+    await process_meta_whatsapp_background({}, "http://host")
     
     # Body with object but no text/media
     body = {
         "object": "whatsapp_business_account",
         "entry": [{"changes": [{"value": {"messages": [{"type": "unknown"}]}}]}]
     }
-    await process_meta_background(body, "http://host")
+    await process_meta_whatsapp_background(body, "http://host")
     
     # Assert nothing bad happened (no mock calls)
     
 @pytest.mark.asyncio
 async def test_meta_background_exception():
     """Verify exception handling in Meta background task"""
-    from routes.meta_routes import process_meta_background
+    from routes.meta_routes import process_meta_whatsapp_background
     # Trigger exception by passing None body which causes AttributeError
     with patch('app_state.diag_logger') as mock_logger:
-        await process_meta_background(None, "host")
+        await process_meta_whatsapp_background(None, "host")
         mock_logger.error.assert_called()
         assert "Error in Meta background task" in str(mock_logger.error.call_args)
 
 def test_meta_process_audio_message(client):
     """Verify processing of audio messages from Meta"""
-    from routes.meta_routes import process_meta_background
+    from routes.meta_routes import process_meta_whatsapp_background
     
     payload = {
         "object": "whatsapp_business_account",
@@ -124,7 +124,7 @@ def test_meta_process_audio_message(client):
                 
                 with patch('routes.meta_routes.send_meta_whatsapp_message') as mock_send:
                     import asyncio
-                    asyncio.run(process_meta_background(payload, "http://host"))
+                    asyncio.run(process_meta_whatsapp_background(payload, "http://host"))
                     
                     mock_bot.transcribe_audio.assert_called_once()
                     mock_bot.chat.assert_called()
@@ -132,7 +132,7 @@ def test_meta_process_audio_message(client):
 
 def test_meta_process_chat_with_markdown_image(client):
     """Verify processing of AI chat response containing a markdown image"""
-    from routes.meta_routes import process_meta_background
+    from routes.meta_routes import process_meta_whatsapp_background
     
     payload = {
         "object": "whatsapp_business_account",
@@ -145,14 +145,14 @@ def test_meta_process_chat_with_markdown_image(client):
         with patch('routes.meta_routes.send_meta_whatsapp_image') as mock_send_img:
             with patch('routes.meta_routes.send_meta_whatsapp_message') as mock_send_msg:
                 import asyncio
-                asyncio.run(process_meta_background(payload, "http://host"))
+                asyncio.run(process_meta_whatsapp_background(payload, "http://host"))
                 
                 mock_send_img.assert_called_with("123", "http://host/generated.jpg")
                 mock_send_msg.assert_called_with("123", "Here is your picture!")
 
 def test_meta_process_image_command(client):
     """Verify processing of /image command from Meta"""
-    from routes.meta_routes import process_meta_background
+    from routes.meta_routes import process_meta_whatsapp_background
     
     payload = {
         "object": "whatsapp_business_account",
@@ -167,7 +167,7 @@ def test_meta_process_image_command(client):
             
             with patch('routes.meta_routes.send_meta_whatsapp_image') as mock_send_img:
                 import asyncio
-                asyncio.run(process_meta_background(payload, "http://host"))
+                asyncio.run(process_meta_whatsapp_background(payload, "http://host"))
                 
                 mock_bot.generate_image.assert_called_with("sun")
                 mock_send_img.assert_called_with("123", "http://host/img.jpg")

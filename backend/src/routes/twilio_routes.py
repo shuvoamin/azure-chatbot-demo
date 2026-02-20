@@ -10,7 +10,7 @@ from utils.image_utils import save_base64_image
 
 router = APIRouter()
 
-async def process_twilio_background(body: str, from_number: str, media_url: str, media_type: str, host_url: str):
+async def process_twilio_whatsapp_background(body: str, from_number: str, media_url: str, media_type: str, host_url: str):
     app_state.diag_logger.info(f"Starting Twilio background task for {from_number}")
     try:
         user_text = body or ""
@@ -61,33 +61,22 @@ def send_twilio_reply(to_number: str, message_text: str, image_url: str = None):
             app_state.diag_logger.info(f"Adding media_url to Twilio params: {image_url}")
             params["media_url"] = [image_url]
             
-        host_url = os.getenv("BASE_URL", "").rstrip("/")
-        if host_url:
-            if "azurewebsites.net" in host_url and not host_url.startswith("https"):
-                host_url = host_url.replace("http://", "https://")
-            params["status_callback"] = f"{host_url}/twilio/status"
+
             
         msg_instance = client.messages.create(**params)
         app_state.diag_logger.info(f"Twilio background reply sent. SID: {msg_instance.sid}, Status: {msg_instance.status}")
     except Exception as e:
         app_state.diag_logger.error(f"Failed to send Twilio outbound: {str(e)}")
 
-@router.post("/whatsapp")
-async def whatsapp_webhook(background_tasks: BackgroundTasks, request: Request, Body: str = Form(None), From: str = Form(...), MediaUrl0: str = Form(None), MediaContentType0: str = Form(None)):
+@router.post("/twilio/whatsapp")
+async def twilio_whatsapp_webhook(background_tasks: BackgroundTasks, request: Request, Body: str = Form(None), From: str = Form(...), MediaUrl0: str = Form(None), MediaContentType0: str = Form(None)):
+    """
+    Twilio Messaging Endpoint (WhatsApp/SMS).
+    Receives incoming messages from Twilio, acknowledges receipt immediately with an empty TwiML response, 
+    and dispatches the message to a background task for processing.
+    """
     app_state.diag_logger.info(f"Received Twilio message from {From}")
     host_url = f"{request.url.scheme}://{request.url.netloc}"
     if "azurewebsites.net" in host_url: host_url = host_url.replace("http://", "https://")
-    background_tasks.add_task(process_twilio_background, Body, From, MediaUrl0, MediaContentType0, host_url)
+    background_tasks.add_task(process_twilio_whatsapp_background, Body, From, MediaUrl0, MediaContentType0, host_url)
     return Response(content=str(MessagingResponse()), media_type="application/xml")
-
-@router.post("/twilio/status")
-async def twilio_status_callback(request: Request):
-    form_data = await request.form()
-    sid = form_data.get("MessageSid")
-    status = form_data.get("SmsStatus") or form_data.get("MessageStatus")
-    error_code = form_data.get("ErrorCode")
-    msg = f"Twilio Status Callback: SID={sid}, Status={status}"
-    if error_code: msg += f", ERROR_CODE={error_code}"
-    if status in ["failed", "undelivered"]: app_state.diag_logger.error(msg)
-    else: app_state.diag_logger.info(msg)
-    return {"status": "ok"}

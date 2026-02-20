@@ -8,7 +8,7 @@ from utils.image_utils import save_base64_image
 
 router = APIRouter()
 
-async def process_meta_background(body: dict, host_url: str):
+async def process_meta_whatsapp_background(body: dict, host_url: str):
     app_state.diag_logger.info("Meta background task starting...")
     try:
         if body.get("object") != "whatsapp_business_account": return
@@ -52,20 +52,30 @@ async def process_meta_background(body: dict, host_url: str):
                                 send_meta_whatsapp_message(from_number, ai_response)
     except Exception as e: app_state.diag_logger.error(f"Error in Meta background task: {e}")
 
-@router.get("/meta/webhook")
-async def verify_meta_webhook(request: Request):
+@router.get("/meta/whatsapp")
+async def verify_meta_whatsapp_webhook(request: Request):
+    """
+    Meta Handshake Endpoint.
+    Used by Facebook/Meta to verify server ownership when first configuring the webhook URL.
+    Returns the hub.challenge string if the verification token matches.
+    """
     params = request.query_params
     if params.get("hub.mode") == "subscribe" and params.get("hub.verify_token") == os.getenv("WHATSAPP_VERIFY_TOKEN", "nviv_verify_token_jan_2026"):
         return Response(content=str(params.get("hub.challenge")), media_type="text/plain")
     return Response(content="Failed", status_code=403)
 
-@router.post("/meta/webhook")
-async def meta_webhook(request: Request, background_tasks: BackgroundTasks):
+@router.post("/meta/whatsapp")
+async def meta_whatsapp_webhook(request: Request, background_tasks: BackgroundTasks):
+    """
+    Meta Messaging Endpoint.
+    Receives all live WhatsApp messages from users. 
+    Acknowledges receipt immediately and processes the message in the background.
+    """
     try: body = await request.json()
     except: return {"status": "error"}
     host_url = f"{request.url.scheme}://{request.url.netloc}"
     if "azurewebsites.net" in host_url: host_url = host_url.replace("http://", "https://")
-    background_tasks.add_task(process_meta_background, body, host_url)
+    background_tasks.add_task(process_meta_whatsapp_background, body, host_url)
     return {"status": "ok"}
 
 def get_meta_media_url(media_id):
