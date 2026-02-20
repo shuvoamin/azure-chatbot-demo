@@ -35,8 +35,12 @@ class ChatbotAgent:
         self.model = None
         self.workflow = None
         self.app = None
-        # Database setup
-        self.data_dir = os.path.join(os.path.dirname(__file__), "..", "data")
+        # Database setup: Use /home/data on Azure App Service for persistence across deployments
+        if os.environ.get("WEBSITE_SITE_NAME"):
+            self.data_dir = "/home/data"
+        else:
+            self.data_dir = os.path.join(os.path.dirname(__file__), "..", "data")
+            
         os.makedirs(self.data_dir, exist_ok=True)
         self.db_path = os.path.join(self.data_dir, "chat_history.sqlite")
         

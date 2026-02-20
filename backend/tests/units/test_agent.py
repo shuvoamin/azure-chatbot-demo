@@ -49,6 +49,17 @@ async def test_agent_initialization(mock_mcp_client):
                 assert agent.tools is not None
 
 @pytest.mark.asyncio
+async def test_agent_initialization_azure_path(mock_mcp_client):
+    """Test that the agent routes correctly to /home/data on Azure App Service."""
+    envs = {
+        "WEBSITE_SITE_NAME": "nviv",
+    }
+    with patch.dict(os.environ, envs), patch("os.makedirs"):
+        agent = ChatbotAgent()
+        assert agent.data_dir == "/home/data"
+        assert agent.db_path == "/home/data/chat_history.sqlite"
+
+@pytest.mark.asyncio
 async def test_agent_should_continue():
     """Test conditional edge logic."""
     agent = ChatbotAgent()
