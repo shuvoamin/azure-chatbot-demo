@@ -18,14 +18,14 @@ def mock_chatbot_session():
         mock_agent = AsyncMock()
         mock_agent.initialize = AsyncMock()
         mock_agent.chat = AsyncMock(return_value="Global Mock AI Response")
-        mock_agent.reset_history = MagicMock()
+        mock_agent.reset_history = AsyncMock()
         mock_instance.agent = mock_agent
         
         # Mock high-level methods
         mock_instance.initialize = AsyncMock()
         mock_instance.chat = AsyncMock(return_value="Global Mock AI Response")
         mock_instance.generate_image.return_value = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg=="
-        mock_instance.reset_history = MagicMock()
+        mock_instance.reset_history = AsyncMock()
         
         # Ensure we patch where it is used/imported
         with patch("app_state.ChatBot", MockChatBot):

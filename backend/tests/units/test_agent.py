@@ -122,11 +122,18 @@ async def test_agent_initialization_standard_openai(mock_mcp_client):
 
 @pytest.mark.asyncio
 async def test_agent_cleanup(mock_mcp_client):
-    """Test cleanup calls close on mcp client"""
+    """Test cleanup calls close on mcp client and db connection"""
     agent = ChatbotAgent()
     agent.mcp_client = mock_mcp_client
+    
+    # Mock the database connection and its async close method
+    agent.conn = MagicMock()
+    agent.conn.close = AsyncMock()
+    
     await agent.cleanup()
+    
     mock_mcp_client.close.assert_awaited_once()
+    agent.conn.close.assert_awaited_once()
 
 @pytest.mark.asyncio
 async def test_agent_load_system_message_file():
@@ -202,20 +209,22 @@ async def test_agent_reset_history():
     """Test history reset attempts to clear records."""
     agent = ChatbotAgent()
     agent.conn = MagicMock()
+    agent.conn.execute = AsyncMock()
+    agent.conn.commit = AsyncMock()
     
-    agent.reset_history("test_thread")
+    await agent.reset_history("test_thread")
     
     assert agent.conn.execute.called
 
-def test_agent_reset_history_exception(capsys):
+@pytest.mark.asyncio
+async def test_agent_reset_history_exception(capsys):
     """Test history reset handles SQLite exceptions gracefully."""
     agent = ChatbotAgent()
     agent.conn = MagicMock()
-    # Simulate an exception during database execution
-    agent.conn.execute.side_effect = Exception("SQLite Error")
+    agent.conn.execute = AsyncMock(side_effect=Exception("SQLite Error"))
     
     # Should catch the error and print to stdout
-    agent.reset_history("test_thread")
+    await agent.reset_history("test_thread")
     
     # Verify the exception was caught and printed
     captured = capsys.readouterr()

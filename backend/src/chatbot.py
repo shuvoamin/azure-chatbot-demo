@@ -125,5 +125,5 @@ class ChatBot:
     async def chat(self, user_input: str, thread_id: str = "default_thread") -> str:
         return await self.agent.chat(user_input, thread_id=thread_id)
 
-    def reset_history(self, thread_id: str = "default_thread"):
-        self.agent.reset_history(thread_id)
+    async def reset_history(self, thread_id: str = "default_thread"):
+        await self.agent.reset_history(thread_id)

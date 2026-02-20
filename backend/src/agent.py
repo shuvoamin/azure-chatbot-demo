@@ -18,8 +18,8 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 class AgentState(TypedDict):
     messages: Annotated[Sequence[BaseMessage], operator.add]
 
-from langgraph.checkpoint.sqlite import SqliteSaver
-import sqlite3
+from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+import aiosqlite
 import uuid
 
 # ... imports ...
@@ -35,18 +35,20 @@ class ChatbotAgent:
         self.model = None
         self.workflow = None
         self.app = None
-        
-        # Ensure data directory exists
+        # Database setup
         self.data_dir = os.path.join(os.path.dirname(__file__), "..", "data")
         os.makedirs(self.data_dir, exist_ok=True)
         self.db_path = os.path.join(self.data_dir, "chat_history.sqlite")
         
-        # We need to keep the connection open for the lifetime of the agent
-        # check_same_thread=False allows async calls to reuse it
-        self.conn = sqlite3.connect(self.db_path, check_same_thread=False)
-        self.memory = SqliteSaver(self.conn)
-        
         self.system_message = self._load_system_message()
+
+    async def _init_memory(self):
+        """Initialize async sqlite saver if not exists"""
+        if not hasattr(self, 'conn') or self.conn is None:
+            self.conn = await aiosqlite.connect(self.db_path)
+            self.memory = AsyncSqliteSaver(self.conn)
+            # aiosqlite requires initialization
+            await self.memory.setup()
 
 
     def _load_system_message(self) -> str:
@@ -76,6 +78,8 @@ class ChatbotAgent:
         self.model = self.model.bind_tools(self.tools)
         
         # 3. Define Graph
+        await self._init_memory()
+        
         workflow = StateGraph(AgentState)
         workflow.add_node("agent", self.call_model)
         workflow.add_node("tools", ToolNode(self.tools))
@@ -121,20 +125,21 @@ class ChatbotAgent:
         except Exception as e:
             return f"I encountered an error: {str(e)}"
 
-    def reset_history(self, thread_id: str):
+    async def reset_history(self, thread_id: str):
         # We could delete the rows manually, or just let users generate a new thread.
         # But if we must clear a specific thread ID's state:
+        await self._init_memory()
         if self.conn:
             try:
                 # Remove checkpoints associated with this thread to 'reset' it
-                self.conn.execute("DELETE FROM checkpoints WHERE thread_id = ?", (thread_id,))
-                self.conn.execute("DELETE FROM checkpoint_blobs WHERE thread_id = ?", (thread_id,))
-                self.conn.execute("DELETE FROM checkpoint_writes WHERE thread_id = ?", (thread_id,))
-                self.conn.commit()
+                await self.conn.execute("DELETE FROM checkpoints WHERE thread_id = ?", (thread_id,))
+                await self.conn.execute("DELETE FROM checkpoint_blobs WHERE thread_id = ?", (thread_id,))
+                await self.conn.execute("DELETE FROM checkpoint_writes WHERE thread_id = ?", (thread_id,))
+                await self.conn.commit()
             except Exception as e:
                 print(f"Failed to reset history for {thread_id}: {e}")
 
     async def cleanup(self):
         await self.mcp_client.close()
         if hasattr(self, 'conn') and self.conn:
-            self.conn.close()
+            await self.conn.close()

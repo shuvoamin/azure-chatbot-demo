@@ -15,7 +15,7 @@ def mock_agent():
         agent_instance = MockAgent.return_value
         agent_instance.initialize = AsyncMock()
         agent_instance.chat = AsyncMock(return_value="Mocked AI Response")
-        agent_instance.reset_history = MagicMock()
+        agent_instance.reset_history = AsyncMock()
         yield agent_instance
 
 def test_chatbot_initialization(mock_agent):
@@ -31,7 +31,8 @@ def test_chatbot_initialization(mock_agent):
             assert bot is not None
             assert bot.agent is not None
 
-def test_chatbot_reset_history(mock_agent):
+@pytest.mark.asyncio
+async def test_chatbot_reset_history(mock_agent):
     """Verify that resetting history calls agent's reset"""
     envs = {
         "AZURE_OPENAI_ENDPOINT": "https://test.openai.azure.com/",
@@ -41,8 +42,8 @@ def test_chatbot_reset_history(mock_agent):
     with patch.dict(os.environ, envs):
         with patch('chatbot.AzureOpenAI'):
             bot = ChatBot()
-            bot.reset_history()
-            mock_agent.reset_history.assert_called_once()
+            await bot.reset_history()
+            mock_agent.reset_history.assert_awaited_once()
 
 @pytest.mark.asyncio
 async def test_chatbot_chat_flow(mock_agent):
