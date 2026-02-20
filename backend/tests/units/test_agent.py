@@ -207,6 +207,20 @@ async def test_agent_reset_history():
     
     assert agent.conn.execute.called
 
+def test_agent_reset_history_exception(capsys):
+    """Test history reset handles SQLite exceptions gracefully."""
+    agent = ChatbotAgent()
+    agent.conn = MagicMock()
+    # Simulate an exception during database execution
+    agent.conn.execute.side_effect = Exception("SQLite Error")
+    
+    # Should catch the error and print to stdout
+    agent.reset_history("test_thread")
+    
+    # Verify the exception was caught and printed
+    captured = capsys.readouterr()
+    assert "Failed to reset history for test_thread: SQLite Error" in captured.out
+
 @pytest.mark.asyncio
 async def test_agent_chat_auto_initialize(mock_mcp_client):
     """Test that chat() calls initialize() if app is None."""
