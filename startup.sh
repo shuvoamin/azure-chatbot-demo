@@ -17,7 +17,10 @@ if ! python -m uvicorn --version > /dev/null 2>&1; then
     python -m pip install -r requirements.txt
 fi
 
-# 3. Run the application
-echo "Starting Nviv Chatbot..."
+# 3. Get App Name from Config
 export PYTHONPATH=$PYTHONPATH:$(pwd)/backend/src
+APP_NAME=$(python3 -c "from config import APP_NAME; print(APP_NAME)")
+
+# 4. Run the application
+echo "Starting $APP_NAME..."
 python -m uvicorn backend.src.main:app --host 0.0.0.0 --port ${PORT:-8000}
