@@ -20,4 +20,4 @@ fi
 # 3. Run the application
 echo "Starting Nviv Chatbot..."
 export PYTHONPATH=$PYTHONPATH:$(pwd)/backend/src
-python -m uvicorn backend.src.api:app --host 0.0.0.0 --port ${PORT:-8000}
+python -m uvicorn backend.src.main:app --host 0.0.0.0 --port ${PORT:-8000}

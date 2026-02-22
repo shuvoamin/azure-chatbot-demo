@@ -75,7 +75,7 @@ Type your message and press Enter. To exit, type `quit` or `exit`.
 Run the API server:
 
 ```bash
-uvicorn api:app --app-dir src --reload
+uvicorn backend.src.main:app --reload
 ```
 
 The API will be available at `http://localhost:8000`.
@@ -123,7 +123,7 @@ This project includes VS Code launch configurations for debugging.
 3.  Select a configuration:
     - **Python: Current File**: suitable for running `src/main.py`.
     - **Python: API (FastAPI)**: suitable for running the API server with reloading disabled (debugging with auto-reload can be tricky, but this config attempts to work with it).
-4.  Set breakpoints in your code (e.g., in `src/chatbot.py` or `src/api.py`).
+4.  Set breakpoints in your code (e.g., in `src/chatbot.py` or `backend/src/main.py`).
 5.  Press `F5` to start debugging.
 
 ### Manual Debugging

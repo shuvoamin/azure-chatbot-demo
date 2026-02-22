@@ -33,7 +33,7 @@ Azure App Service is ideal for hosting both the Python backend and React fronten
    ```bash
    #!/bin/bash
    export PYTHONPATH=$PYTHONPATH:$(pwd)/backend/src
-   uvicorn backend.src.api:app --host 0.0.0.0 --port 8000
+   uvicorn backend.src.main:app --host 0.0.0.0 --port 8000
    ```
 
 4. **Deploy to Azure App Service:**
@@ -107,7 +107,7 @@ az container create \
 1. Create a new Web Service
 2. Connect your GitHub repository
 3. Set build command: `cd frontend && npm install && npm run build && cd .. && pip install -r requirements.txt`
-4. Set start command: `uvicorn src.api:app --host 0.0.0.0 --port $PORT`
+4. Set start command: `uvicorn backend.src.main:app --host 0.0.0.0 --port $PORT`
 5. Add environment variables
 
 ### Railway
@@ -120,7 +120,7 @@ az container create \
 
 ```bash
 # Create Procfile
-echo "web: uvicorn src.api:app --host 0.0.0.0 --port \$PORT" > Procfile
+web: uvicorn backend.src.main:app --host 0.0.0.0 --port $PORT
 
 # Deploy
 heroku create <app-name>
