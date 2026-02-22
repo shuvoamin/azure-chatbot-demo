@@ -5,60 +5,38 @@ import uuid
 import io
 from PIL import Image
 
+from utils.model_registry import ImageFactory
+
 def generate_image(prompt: str) -> str:
     """
-    Generates an image using Azure OpenAI (Flux) based on the user's prompt.
+    Generates an image using the configured Image Provider based on the user's prompt.
     Returns a markdown image link to display to the user.
     
     Args:
         prompt: A descriptive text prompt for the image generation.
     """
-    api_key = os.getenv("AZURE_OPENAI_API_KEY")
-    endpoint = (os.getenv("AZURE_OPENAI_ENDPOINT") or "").rstrip("/")
-    flux_deployment = os.getenv("AZURE_OPENAI_FLUX_DEPLOYMENT")
-    flux_url = os.getenv("AZURE_OPENAI_FLUX_URL")
-
-    if not all([api_key, endpoint, flux_deployment]):
-         return "Error: Azure OpenAI credentials (API_KEY, ENDPOINT, FLUX_DEPLOYMENT) are missing."
-
-    # If no custom URL, build it using the services AI domain pattern
-    if not flux_url:
-        base_url = endpoint.replace("cognitiveservices.azure.com", "services.ai.azure.com").rstrip("/")
-        flux_url = f"{base_url}/providers/blackforestlabs/v1/{flux_deployment}?api-version=preview"
-
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json"
-    }
-    
-    payload = {
-        "prompt": prompt,
-        "width": 1024,
-        "height": 1024,
-        "n": 1,
-        "model": "FLUX.2-pro" 
-    }
-
     try:
-        response = requests.post(flux_url, headers=headers, json=payload)
-        if response.status_code != 200:
-            return f"Error: Image API returned {response.status_code}: {response.text}"
+        # 1. Get the provider from the factory
+        provider_name = os.getenv("IMAGE_MODEL_PROVIDER", "azure-flux")
+        provider = ImageFactory.get_provider(provider_name)
         
-        data = response.json()
-        image_data = None
+        # 2. Generate the image (returns base64 or URL)
+        image_result = provider.generate_image(prompt)
         
-        if 'data' in data and len(data['data']) > 0:
-            item = data['data'][0]
-            if 'b64_json' in item:
-                image_data = item['b64_json']
-            elif 'url' in item:
-                # If URL, we might want to download it or just return it? 
-                # The prompt implies we want to host it locally to be consistent.
-                # For now let's assume b64_json is what we get or handle URL -> saving.
-                return f"![Generated Image]({item['url']})"
-        
-        if not image_data:
+        if not image_result:
              return "Error: Image content not found in response."
+
+        # If it's already a public URL returned by some provider, just return it
+        if image_result.startswith("http") and not image_result.startswith("data:image"):
+            return f"![Generated Image]({image_result})"
+
+        # If it's base64, save it locally to serve it
+        image_data = None
+        if image_result.startswith("data:image"):
+            image_data = image_result.split(",")[1]
+        else:
+            # Assume raw base64 if no prefix
+            image_data = image_result
 
         # Save Image locally
         filename = f"{uuid.uuid4()}.jpg"

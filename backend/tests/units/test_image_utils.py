@@ -39,7 +39,7 @@ def test_save_base64_image_file_error():
     """Verify error handling during file save"""
     # Mock open to raise exception
     with patch("builtins.open", side_effect=IOError("Disk full")):
-        with patch('app_state.diag_logger') as mock_logger:
+        with patch('app_state.logger') as mock_logger:
             url = save_base64_image("data:image/png;base64,data", "http://host")
             # Should fall back to returning original data
             assert url.startswith("data:image/png;base64")
@@ -55,13 +55,13 @@ def test_save_base64_image_general_exception():
     #    header, encoded = base64_data.split(",", 1) ...
     
     with patch("builtins.open", side_effect=Exception("General Fail")):
-        with patch('app_state.diag_logger') as mock_logger:
+        with patch('app_state.logger') as mock_logger:
              url = save_base64_image("data:image/png;base64,data", "host")
              assert url.startswith("data:image/png;base64")
 
 def test_save_base64_azure_url():
     """Verify that Azure URLs are upgraded to HTTPS"""
-    with patch('app_state.diag_logger'):
+    with patch('app_state.logger'):
         with patch('base64.b64decode') as mock_b64:
             mock_b64.return_value = b'imagedata' # Return bytes!
             with patch('PIL.Image.open') as mock_open:
@@ -96,7 +96,7 @@ def test_cleanup_old_images_success(tmp_path):
     
     with patch('utils.image_utils.IMAGES_DIR', mock_dir):
         with patch('utils.image_utils.IMAGE_RETENTION_HOURS', 1):
-            with patch('utils.image_utils.diag_logger') as mock_logger:
+            with patch('utils.image_utils.logger') as mock_logger:
                 cleanup_old_images()
                 
                 # Check deleted and kept
@@ -118,7 +118,7 @@ def test_cleanup_old_images_error_deletion(tmp_path):
         with patch('utils.image_utils.IMAGE_RETENTION_HOURS', 1):
             # We mock the Path.unlink instead of builtins to avoid breaking pytest's tmpdir
             with patch.object(Path, 'unlink', side_effect=PermissionError("Denied")):
-                with patch('utils.image_utils.diag_logger') as mock_logger:
+                with patch('utils.image_utils.logger') as mock_logger:
                     cleanup_old_images()
                     assert old_file.exists()
                     mock_logger.error.assert_any_call("Failed to delete old image old.jpg: Denied")
@@ -128,7 +128,7 @@ def test_cleanup_old_images_general_error():
     mock_dir = MagicMock()
     mock_dir.glob.side_effect = Exception("Glob error")
     with patch('utils.image_utils.IMAGES_DIR', mock_dir):
-        with patch('utils.image_utils.diag_logger') as mock_logger:
+        with patch('utils.image_utils.logger') as mock_logger:
             cleanup_old_images()
             mock_logger.error.assert_called_with("Error during image cleanup: Glob error")
 

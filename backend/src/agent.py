@@ -1,28 +1,35 @@
+import logging
+import operator
 import os
 import sys
-from typing import TypedDict, Annotated, Sequence
-import operator
-from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage, AIMessage
+from typing import Annotated, Sequence, TypedDict
+
+import aiosqlite
+from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 from langchain_openai import AzureChatOpenAI, ChatOpenAI
-from langgraph.graph import StateGraph, END
+from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+from langgraph.graph import END, StateGraph
 from langgraph.prebuilt import ToolNode
+
 from config import APP_NAME
+from utils.model_registry import ModelFactory
+from utils.chat_providers import register_builtin_providers
+
+# Register available providers at startup
+register_builtin_providers()
+
 try:
     from backend.src.utils.mcp_client import MCPClient
 except ImportError:
     from utils.mcp_client import MCPClient
 
-# Add local path for imports if run directly
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+# Setup logger
+logger = logging.getLogger(__name__)
+
+# --- Types ---
 
 class AgentState(TypedDict):
     messages: Annotated[Sequence[BaseMessage], operator.add]
-
-from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
-import aiosqlite
-import uuid
-
-# ... imports ...
 
 class ChatbotAgent:
     def __init__(self):
@@ -35,6 +42,12 @@ class ChatbotAgent:
         self.model = None
         self.workflow = None
         self.app = None
+        self._setup_storage()
+        
+        self.system_message = self._load_training_data()
+
+    def _setup_storage(self):
+        """Setup data directory and database path"""
         # Database setup: Use /home/data on Azure App Service for persistence across deployments
         if os.environ.get("WEBSITE_SITE_NAME"):
             self.data_dir = "/home/data"
@@ -43,11 +56,9 @@ class ChatbotAgent:
             
         os.makedirs(self.data_dir, exist_ok=True)
         self.db_path = os.path.join(self.data_dir, "chat_history.sqlite")
-        
-        self.system_message = self._load_system_message()
 
     async def _init_memory(self):
-        """Initialize async sqlite saver if not exists"""
+        """Initialize async sqlite server if not exists"""
         if not hasattr(self, 'conn') or self.conn is None:
             self.conn = await aiosqlite.connect(self.db_path)
             self.memory = AsyncSqliteSaver(self.conn)
@@ -55,15 +66,20 @@ class ChatbotAgent:
             await self.memory.setup()
 
 
-    def _load_system_message(self) -> str:
+    def _load_training_data(self) -> str:
+        base_message = f"You are {APP_NAME}, a helpful AI assistant."
         try:
             kb_path = os.path.join(os.path.dirname(__file__), "..", "training", "knowledge_base.md")
             if os.path.exists(kb_path):
                 with open(kb_path, "r") as f:
-                    return f"You are {APP_NAME}, a helpful AI assistant.\n\n{f.read()}\n\nUse this knowledge to answer questions accurately.\n\nIMPORTANT: When you generate an image using the `generate_image` tool, the tool will return a markdown link (e.g. `![Generated Image](...)`). You MUST include this EXACT markdown link in your final response to the user. Do not just describe the image; show it by including the link."
-        except Exception:
+                    content = f.read()
+                    content = content.replace("{{APP_NAME}}", APP_NAME)
+                    content = content.replace("{{APP_NAME_LOWER}}", APP_NAME.lower())
+                    return f"{base_message}\n\n{content}"
+        except Exception as e:
+            logger.error(f"Failed to load knowledge base: {e}")
             pass
-        return f"You are {APP_NAME}, a helpful AI assistant.\n\nIMPORTANT: When you generate an image using the `generate_image` tool, the tool will return a markdown link (e.g. `![Generated Image](...)`). You MUST include this EXACT markdown link in your final response to the user. Do not just describe the image; show it by including the link."
+        return base_message
         
     async def initialize(self):
         # 1. Initialize MCP Connection
@@ -71,15 +87,12 @@ class ChatbotAgent:
         self.tools = await self.mcp_client.get_tools()
         
         # 2. Setup Model
-        if os.getenv("AZURE_OPENAI_API_KEY"):
-            self.model = AzureChatOpenAI(
-                azure_deployment=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"),
-                api_version=os.getenv("AZURE_OPENAI_API_VERSION", "2024-02-15-preview")
-            )
-        else:
-            self.model = ChatOpenAI(model="gpt-4o")
+        provider = os.getenv("CHAT_MODEL_PROVIDER")
+        if not provider:
+            # Fallback for backward compatibility with old env vars
+            provider = "azure" if os.getenv("AZURE_OPENAI_API_KEY") else "openai"
             
-        self.model = self.model.bind_tools(self.tools)
+        self.model = ModelFactory.get_model(provider, tools=self.tools)
         
         # 3. Define Graph
         await self._init_memory()
@@ -97,7 +110,7 @@ class ChatbotAgent:
         workflow.add_edge("tools", "agent")
         
         self.app = workflow.compile(checkpointer=self.memory)
-        print("Agent Initialized with Tools:", [t.name for t in self.tools])
+        logger.info(f"Agent Initialized with Tools: {[t.name for t in self.tools]}")
 
     async def call_model(self, state):
         messages = state['messages']
@@ -140,7 +153,7 @@ class ChatbotAgent:
                 await self.conn.execute("DELETE FROM writes WHERE thread_id = ?", (thread_id,))
                 await self.conn.commit()
             except Exception as e:
-                print(f"Failed to reset history for {thread_id}: {e}")
+                logger.error(f"Failed to reset history for {thread_id}: {e}")
 
     async def cleanup(self):
         await self.mcp_client.close()

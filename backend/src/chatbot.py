@@ -6,6 +6,13 @@ from dotenv import load_dotenv
 from config import APP_NAME
 
 from agent import ChatbotAgent
+from utils.model_registry import ImageFactory, AudioFactory
+from utils.audio_providers import register_builtin_audio_providers
+from utils.image_providers import register_builtin_image_providers
+
+# Register all providers
+register_builtin_audio_providers()
+register_builtin_image_providers()
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -14,23 +21,14 @@ logger = logging.getLogger(__name__)
 class ChatBot:
     def __init__(self):
         load_dotenv()
-        self.endpoint = os.getenv("AZURE_OPENAI_ENDPOINT", "").rstrip("/")
-        self.api_key = os.getenv("AZURE_OPENAI_API_KEY")
-        self.deployment_name = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME")
-        self.whisper_deployment = os.getenv("AZURE_OPENAI_WHISPER_DEPLOYMENT")
-        self.flux_deployment = os.getenv("AZURE_OPENAI_FLUX_DEPLOYMENT")
-        self.api_version = os.getenv("AZURE_OPENAI_API_VERSION", "2024-02-15-preview")
-
-        self._validate_env()
-        
         # Initialize Agent
         self.agent = ChatbotAgent()
-
-        self.client = AzureOpenAI(
-            azure_endpoint=self.endpoint,
-            api_key=self.api_key,
-            api_version=self.api_version
-        )
+        
+        # Audio & Image providers are lazy-loaded via Factories later
+        # but we could pre-cache them here if desired.
+        self.image_provider = None
+        self.audio_provider = None
+        self._validate_env()
         
     async def initialize(self):
         await self.agent.initialize()
@@ -50,77 +48,25 @@ class ChatBot:
         return f"You are {APP_NAME}, a helpful AI assistant."
 
     def transcribe_audio(self, audio_content) -> str:
-        """Transcribe audio using Azure OpenAI Whisper"""
-        if not self.whisper_deployment:
-            raise ValueError("Whisper deployment name not configured (AZURE_OPENAI_WHISPER_DEPLOYMENT)")
-
-        try:
-            # We use the open() compatible interface if it were a file, 
-            # but since we have content in memory from requests, we use a Tuple
-            # (filename, file_content, content_type)
-            response = self.client.audio.transcriptions.create(
-                model=self.whisper_deployment,
-                file=("audio.ogg", audio_content, "audio/ogg")
-            )
-            return response.text
-        except Exception as e:
-            raise RuntimeError(f"Transcription failed: {str(e)}")
+        """Transcribe audio using the configured Audio Provider"""
+        if not self.audio_provider:
+            provider_name = os.getenv("AUDIO_MODEL_PROVIDER", "azure-whisper")
+            self.audio_provider = AudioFactory.get_provider(provider_name)
+            
+        return self.audio_provider.transcribe_audio(audio_content)
 
     def generate_image(self, prompt: str) -> str:
-        """Generate image using FLUX.2-pro following the exact Microsoft REST example (MaaS)"""
-        if not self.flux_deployment:
-            raise ValueError("FLUX deployment name not configured (AZURE_OPENAI_FLUX_DEPLOYMENT)")
-
-        flux_url = os.getenv("AZURE_OPENAI_FLUX_URL")
-        
-        # If no custom URL, build it using the services AI domain pattern
-        if not flux_url:
-            base_url = self.endpoint.replace("cognitiveservices.azure.com", "services.ai.azure.com").rstrip("/")
-            flux_url = f"{base_url}/providers/blackforestlabs/v1/{self.flux_deployment}?api-version=preview"
-
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json"
-        }
-        
-        # Payload must match the MaaS REST example exactly
-        payload = {
-            "prompt": prompt,
-            "width": 1024,
-            "height": 1024,
-            "n": 1,
-            # Note: The curl example uses "FLUX.2-pro" (exact case)
-            "model": "FLUX.2-pro" 
-        }
-
-        try:
-            logger.info(f"Targeting Image API: {flux_url}")
-            response = requests.post(flux_url, headers=headers, json=payload)
+        """Generate image using the configured Image Provider"""
+        if not self.image_provider:
+            provider_name = os.getenv("IMAGE_MODEL_PROVIDER", "azure-flux")
+            self.image_provider = ImageFactory.get_provider(provider_name)
             
-            if response.status_code != 200:
-                logger.error(f"Image generation failed. Status: {response.status_code}, Body: {response.text}")
-                # Raising here allows api.py to catch and return the detail to the frontend
-                raise RuntimeError(f"Image API returned {response.status_code}: {response.text}")
-            
-            data = response.json()
-            
-            # The REST example returns base64 in data[0].b64_json
-            if 'data' in data and len(data['data']) > 0:
-                item = data['data'][0]
-                if 'b64_json' in item:
-                    return f"data:image/png;base64,{item['b64_json']}"
-                elif 'url' in item:
-                    return item['url']
-            
-            raise RuntimeError("Image content (url/b64_json) not found in response.")
-        except Exception as e:
-            logger.error(f"Exception during image generation: {str(e)}")
-            raise RuntimeError(f"Image generation failed: {str(e)}")
+        return self.image_provider.generate_image(prompt)
 
 
     def _validate_env(self):
-        if not all([self.endpoint, self.api_key, self.deployment_name]):
-            raise ValueError("Missing required environment variables: AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_API_KEY, AZURE_OPENAI_DEPLOYMENT_NAME")
+        # Validation is now handled inside provider initialization
+        pass
 
     async def chat(self, user_input: str, thread_id: str = "default_thread") -> str:
         return await self.agent.chat(user_input, thread_id=thread_id)

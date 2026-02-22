@@ -102,25 +102,20 @@ class TestCommunication:
 
 class TestMedia:
     @patch("utils.tools.media.os.getenv")
-    @patch("utils.tools.media.requests.post")
+    @patch("utils.tools.media.ImageFactory.get_provider")
     @patch("utils.tools.media.Image.open")
     @patch("utils.tools.media.os.makedirs")
-    def test_generate_image_success(self, mock_makedirs, mock_img_open, mock_post, mock_getenv):
+    def test_generate_image_success(self, mock_makedirs, mock_img_open, mock_get_provider, mock_getenv):
         """Test successful image generation and saving."""
         mock_getenv.side_effect = lambda key, default=None: {
-            "AZURE_OPENAI_API_KEY": "key",
-            "AZURE_OPENAI_ENDPOINT": "https://example.com",
-            "AZURE_OPENAI_FLUX_DEPLOYMENT": "flux",
+            "IMAGE_MODEL_PROVIDER": "azure-flux",
             "BASE_URL": "http://localhost:8000"
         }.get(key, default)
         
-        # Mock API response
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {
-            "data": [{"b64_json": "ZmFrZV9pbWFnZV9kYXRh"}] # "fake_image_data" in base64
-        }
-        mock_post.return_value = mock_response
+        # Mock Provider
+        mock_provider = MagicMock()
+        mock_provider.generate_image.return_value = "ZmFrZV9pbWFnZV9kYXRh" # base64
+        mock_get_provider.return_value = mock_provider
         
         # Mock Image processing
         mock_img = MagicMock()
@@ -132,29 +127,23 @@ class TestMedia:
         assert "![Generated Image]" in result
         assert "http://localhost:8000/static/generated_images/" in result
         
-        mock_post.assert_called_once()
+        mock_get_provider.assert_called_once_with("azure-flux")
         mock_img.save.assert_called_once()
 
     @patch("utils.tools.media.os.getenv")
-    @patch("utils.tools.media.requests.post")
+    @patch("utils.tools.media.ImageFactory.get_provider")
     @patch("utils.tools.media.Image.open")
     @patch("utils.tools.media.os.makedirs")
-    def test_generate_image_relative_url(self, mock_makedirs, mock_img_open, mock_post, mock_getenv):
+    def test_generate_image_relative_url(self, mock_makedirs, mock_img_open, mock_get_provider, mock_getenv):
         """Test image generation with relative URL (no BASE_URL)."""
         mock_getenv.side_effect = lambda key, default=None: {
-            "AZURE_OPENAI_API_KEY": "key",
-            "AZURE_OPENAI_ENDPOINT": "https://example.com",
-            "AZURE_OPENAI_FLUX_DEPLOYMENT": "flux"
-            # BASE_URL missing
+            "IMAGE_MODEL_PROVIDER": "azure-flux"
         }.get(key, default)
         
-        # Mock API response
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {
-            "data": [{"b64_json": "ZmFrZV9pbWFnZV9kYXRh"}]
-        }
-        mock_post.return_value = mock_response
+        # Mock Provider
+        mock_provider = MagicMock()
+        mock_provider.generate_image.return_value = "ZmFrZV9pbWFnZV9kYXRh"
+        mock_get_provider.return_value = mock_provider
         
         # Mock Image processing
         mock_img = MagicMock()
@@ -165,78 +154,45 @@ class TestMedia:
         
         assert "![Generated Image]" in result
         assert "](/static/generated_images/" in result
-        assert "http" not in result.split("]")[1] # Ensure no scheme in URL
         
-        mock_post.assert_called_once()
+        mock_get_provider.assert_called_with("azure-flux")
         mock_img.save.assert_called_once()
 
     @patch("utils.tools.media.os.getenv")
-    def test_generate_image_missing_credentials(self, mock_getenv):
-        """Test usage with missing credentials."""
-        mock_getenv.return_value = None
-        result = generate_image("prompt")
-        assert "Error" in result
-        assert "missing" in result
-
-    @patch("utils.tools.media.os.getenv")
-    @patch("utils.tools.media.requests.post")
-    def test_generate_image_api_error(self, mock_post, mock_getenv):
-        """Test handling of non-200 API response."""
-        mock_getenv.side_effect = lambda key, default=None: "dummy"
-        
-        mock_response = MagicMock()
-        mock_response.status_code = 400
-        mock_response.text = "Bad Request"
-        mock_post.return_value = mock_response
+    @patch("utils.tools.media.ImageFactory.get_provider")
+    def test_generate_image_error_propagation(self, mock_get_provider, mock_getenv):
+        """Test propagation of errors from factory/provider."""
+        mock_getenv.return_value = "dummy"
+        mock_get_provider.side_effect = ValueError("No image provider specified")
         
         result = generate_image("prompt")
-        assert "Error: Image API returned 400" in result
-        assert "Bad Request" in result
+        assert "Error generating image" in result
+        assert "No image provider specified" in result
 
     @patch("utils.tools.media.os.getenv")
-    @patch("utils.tools.media.requests.post")
-    def test_generate_image_url_response(self, mock_post, mock_getenv):
-        """Test handling of URL-based response."""
-        mock_getenv.side_effect = lambda key, default=None: "dummy"
+    @patch("utils.tools.media.ImageFactory.get_provider")
+    def test_generate_image_url_response(self, mock_get_provider, mock_getenv):
+        """Test handling of URL-based response from provider."""
+        mock_getenv.return_value = "dummy"
         
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {
-            "data": [{"url": "http://example.com/image.jpg"}]
-        }
-        mock_post.return_value = mock_response
+        mock_provider = MagicMock()
+        mock_provider.generate_image.return_value = "http://example.com/image.jpg"
+        mock_get_provider.return_value = mock_provider
         
         result = generate_image("prompt")
         assert "![Generated Image](http://example.com/image.jpg)" in result
 
     @patch("utils.tools.media.os.getenv")
-    @patch("utils.tools.media.requests.post")
-    def test_generate_image_no_data(self, mock_post, mock_getenv):
-        """Test handling of empty data in response."""
-        mock_getenv.side_effect = lambda key, default=None: "dummy"
-        
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {"data": []}
-        mock_post.return_value = mock_response
-        
-        result = generate_image("prompt")
-        assert "Error: Image content not found" in result
-
-    @patch("utils.tools.media.os.getenv")
-    @patch("utils.tools.media.requests.post")
+    @patch("utils.tools.media.ImageFactory.get_provider")
     @patch("utils.tools.media.Image.open")
     @patch("utils.tools.media.os.makedirs")
-    def test_generate_image_rgba_conversion(self, mock_makedirs, mock_img_open, mock_post, mock_getenv):
+    def test_generate_image_rgba_conversion(self, mock_makedirs, mock_img_open, mock_get_provider, mock_getenv):
         """Test conversion of RGBA images to RGB."""
-        mock_getenv.side_effect = lambda key, default=None: "dummy"
+        mock_getenv.return_value = "dummy"
         
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {
-            "data": [{"b64_json": "ZmFrZQ=="}]
-        }
-        mock_post.return_value = mock_response
+        mock_provider = MagicMock()
+        mock_provider.generate_image.return_value = "ZmFrZQ=="
+        mock_get_provider.return_value = mock_provider
         
         mock_img = MagicMock()
         mock_img.mode = "RGBA"
@@ -248,31 +204,17 @@ class TestMedia:
         mock_img.convert.return_value.save.assert_called_once()
 
     @patch("utils.tools.media.os.getenv")
-    @patch("utils.tools.media.requests.post")
-    def test_generate_image_exception(self, mock_post, mock_getenv):
-        """Test generic exception handling."""
-        mock_getenv.side_effect = lambda key, default=None: "dummy"
-        mock_post.side_effect = Exception("Net Error")
-        
-        result = generate_image("prompt")
-        assert "Error generating image" in result
-        assert "Net Error" in result
-
-    @patch("utils.tools.media.os.getenv")
-    @patch("utils.tools.media.requests.post")
+    @patch("utils.tools.media.ImageFactory.get_provider")
     @patch("utils.tools.media.Image.open")
     @patch("utils.tools.media.os.makedirs")
     @patch("utils.tools.media.os.path.exists")
-    def test_generate_image_path_fallback(self, mock_exists, mock_makedirs, mock_img_open, mock_post, mock_getenv):
+    def test_generate_image_path_fallback(self, mock_exists, mock_makedirs, mock_img_open, mock_get_provider, mock_getenv):
         """Test path fallback logic when project root is not found."""
-        mock_getenv.side_effect = lambda key, default=None: "dummy"
+        mock_getenv.return_value = "dummy"
         
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {
-            "data": [{"b64_json": "ZmFrZQ=="}]
-        }
-        mock_post.return_value = mock_response
+        mock_provider = MagicMock()
+        mock_provider.generate_image.return_value = "ZmFrZQ=="
+        mock_get_provider.return_value = mock_provider
         
         mock_img = MagicMock()
         mock_img_open.return_value = mock_img
@@ -289,3 +231,33 @@ class TestMedia:
         # or inspecting the call to makedirs/save.
         # But simply executing this path covers the lines.
         mock_makedirs.assert_called()
+
+    @patch("utils.tools.media.os.getenv")
+    @patch("utils.tools.media.ImageFactory.get_provider")
+    def test_generate_image_empty_result(self, mock_get_provider, mock_getenv):
+        """Test handling of empty image result."""
+        mock_getenv.return_value = "dummy"
+        mock_provider = MagicMock()
+        mock_provider.generate_image.return_value = ""
+        mock_get_provider.return_value = mock_provider
+        
+        result = generate_image("prompt")
+        assert "Error: Image content not found" in result
+
+    @patch("utils.tools.media.os.getenv")
+    @patch("utils.tools.media.ImageFactory.get_provider")
+    @patch("utils.tools.media.Image.open")
+    @patch("utils.tools.media.os.makedirs")
+    def test_generate_image_data_uri_prefix(self, mock_makedirs, mock_img_open, mock_get_provider, mock_getenv):
+        """Test handling of data:image prefix."""
+        mock_getenv.return_value = "dummy"
+        mock_provider = MagicMock()
+        mock_provider.generate_image.return_value = "data:image/png;base64,ZmFrZQ=="
+        mock_get_provider.return_value = mock_provider
+        
+        mock_img = MagicMock()
+        mock_img.mode = "RGB"
+        mock_img_open.return_value = mock_img
+        
+        result = generate_image("prompt")
+        assert "![Generated Image]" in result

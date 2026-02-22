@@ -23,14 +23,14 @@ def test_get_image_not_found(client):
 def test_api_image_content_types(client):
     """Verify content type logic in api.py"""
     # We will patch 'api.FileResponse' and 'app_state.IMAGES_DIR'
-    from api import get_image
+    from routes.chat_routes import get_image
     
     with patch('app_state.IMAGES_DIR') as mock_dir:
         mock_file = MagicMock()
         mock_file.exists.return_value = True
         mock_dir.__truediv__.return_value = mock_file
         
-        with patch('api.FileResponse') as mock_file_resp:
+        with patch('routes.chat_routes.FileResponse') as mock_file_resp:
             mock_file_resp.return_value = "Response"
             
             # Test png (default)

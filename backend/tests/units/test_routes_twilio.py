@@ -10,8 +10,9 @@ def test_twilio_whatsapp_webhook_ack(client):
         "Body": "Hello"
     }
     # We mock the diagnostic logger to avoid unnecessary output in tests
-    with patch('app_state.diag_logger'):
-        response = client.post("/twilio/whatsapp", data=payload)
+    with patch('app_state.logger'):
+        with client:
+            response = client.post("/twilio/whatsapp", data=payload)
         
     assert response.status_code == 200
     assert "application/xml" in response.headers["content-type"]
@@ -47,17 +48,14 @@ async def test_twilio_whatsapp_image_command(client):
     from routes.twilio_routes import process_twilio_whatsapp_background
     
     with patch('app_state.chatbot') as mock_bot:
-        mock_bot.generate_image.return_value = "data:image/png;base64,data"
+        mock_bot.chat = AsyncMock(return_value="![Image](http://host/image.jpg)")
         
-        with patch('routes.twilio_routes.save_base64_image') as mock_save:
-            mock_save.return_value = "http://host/image.jpg"
+        with patch('routes.twilio_routes.send_twilio_reply') as mock_send:
+            # Run the async function directly
+            await process_twilio_whatsapp_background("/image sunset", "whatsapp:+1", None, None, "http://host")
             
-            with patch('routes.twilio_routes.send_twilio_reply') as mock_send:
-                # Run the async function directly
-                await process_twilio_whatsapp_background("/image sunset", "whatsapp:+1", None, None, "http://host")
-                
-                mock_bot.generate_image.assert_called_with("sunset")
-                mock_send.assert_called_with("whatsapp:+1", "", "http://host/image.jpg")
+            mock_bot.chat.assert_called()
+            mock_send.assert_called_with("whatsapp:+1", "", "http://host/image.jpg")
 
 @pytest.mark.asyncio
 async def test_twilio_process_chat_with_markdown_image(client):
@@ -77,7 +75,7 @@ def test_twilio_send_reply_missing_creds(client):
     envs = {} # Empty env
     with patch.dict(os.environ, envs, clear=True):
         from routes.twilio_routes import send_twilio_reply
-        with patch('app_state.diag_logger') as mock_logger:
+        with patch('app_state.logger') as mock_logger:
             send_twilio_reply("to", "msg")
             mock_logger.error.assert_called_with("CRITICAL: Twilio credentials missing!")
 
@@ -133,7 +131,7 @@ def test_twilio_send_reply_exception(client):
         from routes.twilio_routes import send_twilio_reply
         with patch('routes.twilio_routes.TwilioClient') as mock_client:
             mock_client.side_effect = Exception("Twilio Down")
-            with patch('app_state.diag_logger') as mock_logger:
+            with patch('app_state.logger') as mock_logger:
                 send_twilio_reply("to", "msg")
                 mock_logger.error.assert_called()
                 assert "Twilio Down" in str(mock_logger.error.call_args)

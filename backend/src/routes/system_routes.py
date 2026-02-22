@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Response
-from app_state import LOG_BUFFER, APP_NAME
+from app_state import APP_NAME
 
 router = APIRouter()
 
@@ -7,5 +7,3 @@ router = APIRouter()
 async def health_check():
     """Basic health check endpoint"""
     return {"status": "ok"}
-
-

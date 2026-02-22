@@ -35,7 +35,7 @@ def mock_chatbot_session():
 def client(mock_chatbot_session):
     """Fixture for creating a FastAPI TestClient"""
     # Import app here internally so the session mock is already active
-    from api import app
+    from main import app
     return TestClient(app)
 
 @pytest.fixture

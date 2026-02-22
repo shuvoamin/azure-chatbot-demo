@@ -16,6 +16,11 @@ from tools.communication import send_twilio_sms, send_whatsapp_message
 from tools.media import generate_image
 from config import APP_NAME
 
+# Trigger provider registration
+import utils.image_providers
+import utils.audio_providers
+import utils.chat_providers
+
 # Initialize FastMCP Server
 mcp = FastMCP(f"{APP_NAME} Communication Server")
 

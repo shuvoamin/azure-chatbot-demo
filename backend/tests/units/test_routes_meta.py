@@ -95,7 +95,7 @@ async def test_meta_background_exception():
     """Verify exception handling in Meta background task"""
     from routes.meta_routes import process_meta_whatsapp_background
     # Trigger exception by passing None body which causes AttributeError
-    with patch('app_state.diag_logger') as mock_logger:
+    with patch('app_state.logger') as mock_logger:
         await process_meta_whatsapp_background(None, "host")
         mock_logger.error.assert_called()
         assert "Error in Meta background task" in str(mock_logger.error.call_args)
@@ -160,17 +160,14 @@ def test_meta_process_image_command(client):
     }
     
     with patch('app_state.chatbot') as mock_bot:
-        mock_bot.generate_image.return_value = "data:image/png;base64,data"
+        mock_bot.chat = AsyncMock(return_value="![Image](http://host/img.jpg)")
         
-        with patch('routes.meta_routes.save_base64_image') as mock_save:
-            mock_save.return_value = "http://host/img.jpg"
+        with patch('routes.meta_routes.send_meta_whatsapp_image') as mock_send_img:
+            import asyncio
+            asyncio.run(process_meta_whatsapp_background(payload, "http://host"))
             
-            with patch('routes.meta_routes.send_meta_whatsapp_image') as mock_send_img:
-                import asyncio
-                asyncio.run(process_meta_whatsapp_background(payload, "http://host"))
-                
-                mock_bot.generate_image.assert_called_with("sun")
-                mock_send_img.assert_called_with("123", "http://host/img.jpg")
+            mock_bot.chat.assert_called()
+            mock_send_img.assert_called_with("123", "http://host/img.jpg")
 
 def test_meta_get_media_url(client):
     """Verify media URL retrieval"""

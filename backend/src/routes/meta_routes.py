@@ -8,50 +8,6 @@ from utils.image_utils import save_base64_image
 
 router = APIRouter()
 
-async def process_meta_whatsapp_background(body: dict, host_url: str):
-    app_state.diag_logger.info("Meta background task starting...")
-    try:
-        if body.get("object") != "whatsapp_business_account": return
-        for entry in body.get("entry", []):
-            for change in entry.get("changes", []):
-                value = change.get("value", {})
-                for message in value.get("messages", []):
-                    from_number = message.get("from")
-                    user_text = ""
-                    if message.get("type") == "text": user_text = message.get("text", {}).get("body", "")
-                    elif message.get("type") == "audio":
-                        audio_url = get_meta_media_url(message.get("audio", {}).get("id"))
-                        if audio_url:
-                            token = os.getenv('WHATSAPP_ACCESS_TOKEN')
-                            audio_resp = requests.get(audio_url, headers={"Authorization": f"Bearer {token}"})
-                            if audio_resp.status_code == 200: 
-                                user_text = app_state.chatbot.transcribe_audio(audio_resp.content)
-                    if user_text:
-                        if user_text.lower().startswith("/image"):
-                            prompt = user_text[7:].strip()
-                            image_result = app_state.chatbot.generate_image(prompt)
-                            image_url = save_base64_image(image_result, host_url)
-                            send_meta_whatsapp_image(from_number, image_url)
-                        else:
-                            ai_response = await app_state.chatbot.chat(
-                                f"{user_text}\n\n[Instruction: Keep your response under 1500 characters.]",
-                                thread_id=from_number
-                            )
-                            
-                            # Check if the AI generated an image (markdown format: ![alt](url))
-                            image_match = re.search(r'!\[.*?\]\((.*?)\)', ai_response)
-                            if image_match:
-                                image_url = image_match.group(1)
-                                send_meta_whatsapp_image(from_number, image_url)
-                                
-                                # Send any text that accompanied the image
-                                text_without_image = re.sub(r'!\[.*?\]\(.*?\)', '', ai_response).strip()
-                                if text_without_image:
-                                    send_meta_whatsapp_message(from_number, text_without_image)
-                            else:
-                                send_meta_whatsapp_message(from_number, ai_response)
-    except Exception as e: app_state.diag_logger.error(f"Error in Meta background task: {e}")
-
 @router.get("/meta/whatsapp")
 async def verify_meta_whatsapp_webhook(request: Request):
     """
@@ -77,6 +33,44 @@ async def meta_whatsapp_webhook(request: Request, background_tasks: BackgroundTa
     if "azurewebsites.net" in host_url: host_url = host_url.replace("http://", "https://")
     background_tasks.add_task(process_meta_whatsapp_background, body, host_url)
     return {"status": "ok"}
+
+async def process_meta_whatsapp_background(body: dict, host_url: str):
+    app_state.logger.info("Meta background task starting...")
+    try:
+        if body.get("object") != "whatsapp_business_account": return
+        for entry in body.get("entry", []):
+            for change in entry.get("changes", []):
+                value = change.get("value", {})
+                for message in value.get("messages", []):
+                    from_number = message.get("from")
+                    user_text = ""
+                    if message.get("type") == "text": user_text = message.get("text", {}).get("body", "")
+                    elif message.get("type") == "audio":
+                        audio_url = get_meta_media_url(message.get("audio", {}).get("id"))
+                        if audio_url:
+                            token = os.getenv('WHATSAPP_ACCESS_TOKEN')
+                            audio_resp = requests.get(audio_url, headers={"Authorization": f"Bearer {token}"})
+                            if audio_resp.status_code == 200: 
+                                user_text = app_state.chatbot.transcribe_audio(audio_resp.content)
+                    if user_text:
+                        ai_response = await app_state.chatbot.chat(
+                            f"{user_text}\n\n[Instruction: Keep your response under 1500 characters.]",
+                            thread_id=from_number
+                        )
+                            
+                        # Check if the AI generated an image (markdown format: ![alt](url))
+                        image_match = re.search(r'!\[.*?\]\((.*?)\)', ai_response)
+                        if image_match:
+                            image_url = image_match.group(1)
+                            send_meta_whatsapp_image(from_number, image_url)
+                            
+                            # Send any text that accompanied the image
+                            text_without_image = re.sub(r'!\[.*?\]\(.*?\)', '', ai_response).strip()
+                            if text_without_image:
+                                send_meta_whatsapp_message(from_number, text_without_image)
+                        else:
+                            send_meta_whatsapp_message(from_number, ai_response)
+    except Exception as e: app_state.logger.error(f"Error in Meta background task: {e}")
 
 def get_meta_media_url(media_id):
     token = os.getenv("WHATSAPP_ACCESS_TOKEN")

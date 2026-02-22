@@ -3,7 +3,7 @@ import uuid
 import io
 import time
 from PIL import Image
-from app_state import IMAGES_DIR, diag_logger
+from app_state import IMAGES_DIR, logger
 from config import IMAGE_RETENTION_HOURS
 
 def save_base64_image(image_data: str, base_url: str) -> str:
@@ -24,17 +24,17 @@ def save_base64_image(image_data: str, base_url: str) -> str:
         img.save(filepath, "JPEG", quality=85)
         
         filesize_kb = filepath.stat().st_size / 1024
-        diag_logger.info(f"Image saved: {filename} ({filesize_kb:.2f} KB)")
+        logger.info(f"Image saved: {filename} ({filesize_kb:.2f} KB)")
         
         url_str = str(base_url).rstrip('/')
         if "azurewebsites.net" in url_str and not url_str.startswith("https"):
             url_str = url_str.replace("http://", "https://")
             
         public_url = f"{url_str}/static/generated_images/{filename}"
-        diag_logger.info(f"Image available at: {public_url}")
+        logger.info(f"Image available at: {public_url}")
         return public_url
     except Exception as e:
-        diag_logger.error(f"Failed to transcode base64 image: {e}")
+        logger.error(f"Failed to transcode base64 image: {e}")
         return image_data
 
 def cleanup_old_images():
@@ -53,9 +53,9 @@ def cleanup_old_images():
                         filepath.unlink()
                         deleted_count += 1
                     except Exception as e:
-                        diag_logger.error(f"Failed to delete old image {filepath.name}: {e}")
+                        logger.error(f"Failed to delete old image {filepath.name}: {e}")
                         
         if deleted_count > 0:
-            diag_logger.info(f"Cleaned up {deleted_count} old generated images")
+            logger.info(f"Cleaned up {deleted_count} old generated images")
     except Exception as e:
-        diag_logger.error(f"Error during image cleanup: {e}")
+        logger.error(f"Error during image cleanup: {e}")

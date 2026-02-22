@@ -40,8 +40,10 @@ async def test_agent_initialization(mock_mcp_client):
             mock_graph = mock_state_graph.return_value
             mock_graph.compile.return_value = AsyncMock()
             
-            # Mock AzureChatOpenAI to avoid real connection/validation failures
-            with patch("agent.AzureChatOpenAI") as mock_azure:
+            # Mock ModelFactory to avoid real connection/validation failures
+            with patch("agent.ModelFactory.get_model") as mock_get_model:
+                mock_model = MagicMock()
+                mock_get_model.return_value = mock_model
                 await agent.initialize()
                 
                 mock_mcp_client.initialize.assert_awaited_once()
@@ -121,15 +123,17 @@ async def test_agent_initialization_standard_openai(mock_mcp_client):
         agent = ChatbotAgent()
         agent.mcp_client = mock_mcp_client
         
-        with patch("agent.ChatOpenAI") as mock_openai, \
+        with patch("agent.ModelFactory.get_model") as mock_get_model, \
              patch("agent.StateGraph") as mock_state_graph:
             
+            mock_model = MagicMock()
+            mock_get_model.return_value = mock_model
             mock_graph = mock_state_graph.return_value
             mock_graph.compile.return_value = AsyncMock()
             
             await agent.initialize()
             
-            mock_openai.assert_called_with(model="gpt-4o")
+            mock_get_model.assert_called_with("openai", tools=agent.tools)
             assert agent.model is not None
             await agent.cleanup()
 
@@ -149,8 +153,8 @@ async def test_agent_cleanup(mock_mcp_client):
     agent.conn.close.assert_awaited_once()
 
 @pytest.mark.asyncio
-async def test_agent_load_system_message_file():
-    """Test loading system message from file."""
+async def test_agent_load_training_data_file():
+    """Test loading training data from file."""
     with patch("os.path.exists", return_value=True), \
          patch("builtins.open", new_callable=MagicMock) as mock_open:
         mock_file = MagicMock()
@@ -161,16 +165,24 @@ async def test_agent_load_system_message_file():
         assert "Knowledge content" in agent.system_message
 
 @pytest.mark.asyncio
-async def test_agent_load_system_message_failure():
+async def test_agent_load_training_data_with_placeholders():
+    """Test that placeholders in the training data are correctly replaced."""
+    from config import APP_NAME
+    with patch("os.path.exists", return_value=True), \
+         patch("builtins.open", new_callable=MagicMock) as mock_open:
+        mock_file = MagicMock()
+        mock_file.__enter__.return_value.read.return_value = "Welcome to {{APP_NAME}}! Contact support@{{APP_NAME_LOWER}}.com"
+        mock_open.return_value = mock_file
+        
+        agent = ChatbotAgent()
+        expected_content = f"Welcome to {APP_NAME}! Contact support@{APP_NAME.lower()}.com"
+        assert expected_content in agent.system_message
+
+@pytest.mark.asyncio
+async def test_agent_load_training_data_failure():
     """Test fallback when loading fails."""
     from config import APP_NAME
-    image_instruction = (
-        "\n\nIMPORTANT: When you generate an image using the `generate_image` tool, "
-        "the tool will return a markdown link (e.g. `![Generated Image](...)`). "
-        "You MUST include this EXACT markdown link in your final response to the user. "
-        "Do not just describe the image; show it by including the link."
-    )
-    expected = f"You are {APP_NAME}, a helpful AI assistant.{image_instruction}"
+    expected = f"You are {APP_NAME}, a helpful AI assistant."
     with patch("os.path.exists", return_value=True), \
          patch("builtins.open", side_effect=Exception("Read Error")):
         agent = ChatbotAgent()
@@ -230,18 +242,16 @@ async def test_agent_reset_history():
     assert agent.conn.execute.called
 
 @pytest.mark.asyncio
-async def test_agent_reset_history_exception(capsys):
+async def test_agent_reset_history_exception():
     """Test history reset handles SQLite exceptions gracefully."""
     agent = ChatbotAgent()
     agent.conn = MagicMock()
     agent.conn.execute = AsyncMock(side_effect=Exception("SQLite Error"))
     
-    # Should catch the error and print to stdout
-    await agent.reset_history("test_thread")
-    
-    # Verify the exception was caught and printed
-    captured = capsys.readouterr()
-    assert "Failed to reset history for test_thread: SQLite Error" in captured.out
+    # Should catch the error and log it
+    with patch("agent.logger") as mock_logger:
+        await agent.reset_history("test_thread")
+        mock_logger.error.assert_called_with("Failed to reset history for test_thread: SQLite Error")
 
 @pytest.mark.asyncio
 async def test_agent_chat_auto_initialize(mock_mcp_client):
